@@ -1,4 +1,4 @@
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 pub struct Vec3 {
     x: f32,
     y: f32,
@@ -30,30 +30,30 @@ impl Vec3 {
 }
 
 #[derive(Clone, Copy)]
-struct Sphere {
-    center: Vec3,
-    radius: f32,
+pub struct Sphere {
+    pub center: Vec3,
+    pub radius: f32,
 }
 
 #[derive(Clone, Copy)]
-struct AxisAlignedBox {
+pub struct AxisAlignedBox {
     // I can represent multiple ways:
     // 2 opposite corners (6 * f32)
     // center, width, height, depth - same
     // one corner, width, height, depth - same
     // let's do the first one (2 opposite corners)
-    min: Vec3,
-    max: Vec3,
+    pub min: Vec3,
+    pub max: Vec3,
 }
 
 #[derive(Clone, Copy)]
-struct Intersection {
-    coord: Vec3,
-    normal: Vec3,
+pub struct Intersection {
+    pub coord: Vec3,
+    pub normal: Vec3,
 }
 
 #[derive(Clone, Copy)]
-enum Shape {
+pub enum Shape {
     Sphere(Sphere),
     AAB(AxisAlignedBox),
 }
