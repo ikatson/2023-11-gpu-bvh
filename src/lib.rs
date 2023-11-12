@@ -7,7 +7,7 @@ pub struct Vec3 {
     z: f32,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct Ray {
     pub origin: Vec3,
     pub direction: Vec3,
@@ -354,7 +354,7 @@ impl AxisAlignedBox {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct Intersection {
     pub coord: Vec3,
     pub normal: Vec3,
@@ -365,6 +365,13 @@ pub enum Shape {
     Sphere(Sphere),
     AAB(AxisAlignedBox),
 }
+
+impl From<Sphere> for Shape {
+    fn from(value: Sphere) -> Self {
+        Shape::Sphere(value)
+    }
+}
+
 impl Shape {
     fn intersection(&self, ray: &Ray) -> Option<Intersection> {
         match self {
@@ -474,13 +481,18 @@ mod bvh {
             fn intersection<'a>(
                 bvh: &'a BVH,
                 ray: &Ray,
-                node: NodeId,
+                node_id: NodeId,
             ) -> Option<(Intersection, &'a Shape)> {
-                let node = bvh.nodes.get(node.0)?;
-                if !node.aabb.intersects_vectors(ray) {
+                let node = bvh.nodes.get(node_id.0)?;
+                if !node.aabb.intersects_branchless(ray) {
+                    println!(
+                        "no intersection of {:?} with {:?}, aabb: {:?}",
+                        ray, node_id, node.aabb
+                    );
                     return None;
                 }
                 fn filter_by_normal(ray: &Ray, intersection: Intersection) -> Option<Intersection> {
+                    return Some(intersection);
                     if ray.direction.dot(&intersection.normal) < 0. {
                         Some(intersection)
                     } else {
@@ -607,33 +619,74 @@ pub use bvh::BVH;
 
 #[cfg(test)]
 mod tests {
+    use crate::{Shape, Sphere, Vec3, BVH};
+
     #[test]
     fn test_bvh_1_object_works() {
-        let sphere = crate::Shape::Sphere(crate::Sphere {
-            center: crate::Vec3::new(0., 0., 5.),
+        let sphere = Shape::Sphere(Sphere {
+            center: Vec3::new(0., 0., 5.),
             radius: 1.,
         });
-        let bvh = crate::BVH::new(vec![sphere]);
+        let bvh = BVH::new(vec![sphere]);
         let ray = crate::Ray {
-            origin: crate::Vec3::new(0., 0., 0.),
-            direction: crate::Vec3::new(0., 0., 1.),
+            origin: Vec3::new(0., 0., 0.),
+            direction: Vec3::new(0., 0., 1.),
         };
         let i = bvh.intersection(&ray);
         assert!(i.is_some());
+        dbg!(i);
     }
 
     #[test]
     fn test_bvh_1_object_from_inside_doesnt_work() {
-        let sphere = crate::Shape::Sphere(crate::Sphere {
-            center: crate::Vec3::new(0., 0., 0.),
+        let sphere = Shape::Sphere(Sphere {
+            center: Vec3::new(0., 0., 0.),
             radius: 1.,
         });
-        let bvh = crate::BVH::new(vec![sphere]);
+        let bvh = BVH::new(vec![sphere]);
         let ray = crate::Ray {
-            origin: crate::Vec3::new(0., 0., 0.),
-            direction: crate::Vec3::new(0., 0., 1.),
+            origin: Vec3::new(0., 0., 0.),
+            direction: Vec3::new(0., 0., 1.),
         };
         let i = bvh.intersection(&ray);
         assert!(i.is_none());
+    }
+
+    #[test]
+    fn test_bvh_multiple_objects() {
+        let shapes: Vec<Shape> = vec![
+            Shape::Sphere(Sphere {
+                center: Vec3::new(0., 0., 0.),
+                radius: 1.,
+            }),
+            Shape::Sphere(Sphere {
+                center: Vec3::new(0., 0., 2.),
+                radius: 1.,
+            }),
+            Shape::Sphere(Sphere {
+                center: Vec3::new(0., 0., 4.),
+                radius: 1.,
+            }),
+            Shape::Sphere(Sphere {
+                center: Vec3::new(0., 0., 6.),
+                radius: 1.,
+            }),
+            Shape::Sphere(Sphere {
+                center: Vec3::new(0., 0., 8.),
+                radius: 1.,
+            }),
+        ];
+        let bvh = BVH::new(shapes);
+        let ray = {
+            let mut ray = crate::Ray {
+                origin: Vec3::new(4., 0., 0.),
+                direction: Vec3::default(),
+            };
+            ray.direction = (Vec3::new(0., 0., 8.) - ray.origin).normalize();
+            ray
+        };
+        let i = bvh.intersection(&ray);
+        assert!(i.is_some());
+        dbg!(i);
     }
 }
