@@ -392,9 +392,10 @@ async fn main_wgpu(bvh: BVH) -> anyhow::Result<()> {
                     shader_location: 0,
                 }],
             }],
+            //            buffers: &[],
         },
         primitive: PrimitiveState {
-            topology: wgpu::PrimitiveTopology::TriangleList,
+            topology: wgpu::PrimitiveTopology::TriangleStrip,
             front_face: wgpu::FrontFace::Ccw,
             ..Default::default()
         },
@@ -407,13 +408,11 @@ async fn main_wgpu(bvh: BVH) -> anyhow::Result<()> {
         }),
         multiview: None,
     });
-    let quad: [Vec3; 6] = [
-        Vec3::new(-1., -1., 0.5),
-        Vec3::new(1., -1., 0.5),
+    let quad: [Vec3; 4] = [
         Vec3::new(-1., 1., 0.5),
         Vec3::new(-1., -1., 0.5),
-        Vec3::new(1., -1., 0.5),
         Vec3::new(1., 1., 0.5),
+        Vec3::new(1., -1., 0.5),
     ];
     dbg!(core::mem::size_of_val(&quad));
     dbg!(core::mem::size_of::<Vec3>());
