@@ -304,8 +304,8 @@ async fn main_wgpu(bvh: BVH) -> anyhow::Result<()> {
             width: WIDTH as u32,
             height: HEIGHT as u32,
             present_mode: wgpu::PresentMode::Fifo,
-            alpha_mode: wgpu::CompositeAlphaMode::Auto,
-            view_formats: Default::default(),
+            alpha_mode: capabilities.alpha_modes[0],
+            view_formats: vec![],
         },
     );
 
@@ -394,7 +394,7 @@ async fn main_wgpu(bvh: BVH) -> anyhow::Result<()> {
             }],
         },
         primitive: PrimitiveState {
-            topology: wgpu::PrimitiveTopology::TriangleStrip,
+            topology: wgpu::PrimitiveTopology::TriangleList,
             front_face: wgpu::FrontFace::Ccw,
             ..Default::default()
         },
@@ -403,19 +403,17 @@ async fn main_wgpu(bvh: BVH) -> anyhow::Result<()> {
         fragment: Some(FragmentState {
             module: &shader,
             entry_point: "main_fs",
-            targets: &[Some(ColorTargetState {
-                format: capabilities.formats[0],
-                blend: None,
-                write_mask: ColorWrites::all(),
-            })],
+            targets: &[Some(capabilities.formats[0].into())],
         }),
         multiview: None,
     });
-    let quad: [Vec3; 4] = [
+    let quad: [Vec3; 6] = [
+        Vec3::new(-1., -1., 0.5),
+        Vec3::new(1., -1., 0.5),
+        Vec3::new(-1., 1., 0.5),
         Vec3::new(-1., -1., 0.5),
         Vec3::new(1., -1., 0.5),
         Vec3::new(1., 1., 0.5),
-        Vec3::new(-1., 1., 0.5),
     ];
     dbg!(core::mem::size_of_val(&quad));
     dbg!(core::mem::size_of::<Vec3>());
@@ -471,8 +469,10 @@ async fn main_wgpu(bvh: BVH) -> anyhow::Result<()> {
                 // WindowEvent::Occluded(_) => todo!(),
                 WindowEvent::RedrawRequested => {
                     let txt = surface.get_current_texture().unwrap();
+                    println!("hi");
                     app.render(&txt, &device, &queue).unwrap();
                     txt.present();
+                    window.request_redraw();
                 },
                 _ => {}
             },
