@@ -1,6 +1,8 @@
 use std::ops::{Add, Div, Mul, Sub};
+use zerocopy_derive::AsBytes;
 
-#[derive(Clone, Copy, Default, Debug)]
+#[derive(Clone, Copy, Default, Debug, AsBytes)]
+#[repr(C)]
 pub struct Vec3 {
     pub x: f32,
     pub y: f32,
@@ -69,6 +71,14 @@ impl Vec3 {
             x: self.x.max(other.x),
             y: self.y.max(other.y),
             z: self.z.max(other.z),
+        }
+    }
+
+    pub fn abs(&self) -> Self {
+        Self {
+            x: self.x.abs(),
+            y: self.y.abs(),
+            z: self.z.abs(),
         }
     }
 
@@ -499,7 +509,7 @@ mod bvh {
                 node_id: NodeId,
             ) -> Option<(Intersection, &'a Shape)> {
                 let node = bvh.nodes.get(node_id.0)?;
-                if !node.aabb.intersects_branchless(ray) {
+                if !node.aabb.intersects_vectors(ray) {
                     return None;
                 }
                 fn filter_by_normal(ray: &Ray, intersection: Intersection) -> Option<Intersection> {
