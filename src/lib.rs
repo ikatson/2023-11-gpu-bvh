@@ -1,6 +1,6 @@
 use std::ops::{Add, Div, Sub};
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, Debug)]
 pub struct Vec3 {
     x: f32,
     y: f32,
@@ -169,7 +169,7 @@ impl Div<f32> for Vec3 {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct Sphere {
     pub center: Vec3,
     pub radius: f32,
@@ -214,7 +214,7 @@ pub struct Plane {
 
 impl Plane {}
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct AxisAlignedBox {
     // I can represent multiple ways:
     // 2 opposite corners (6 * f32)
@@ -312,7 +312,7 @@ pub struct Intersection {
     pub normal: Vec3,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum Shape {
     Sphere(Sphere),
     AAB(AxisAlignedBox),
@@ -364,7 +364,61 @@ mod bvh {
         root: NodeId,
     }
 
+    impl core::fmt::Debug for BVH {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            struct NodeDebug<'a> {
+                id: NodeId,
+                bvh: &'a BVH,
+            }
+
+            impl<'a> core::fmt::Debug for NodeDebug<'a> {
+                fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    let node = &self.bvh.nodes[self.id.0];
+                    match node.kind {
+                        NodeKind::Leaf(shape_id) => f
+                            .debug_struct("Node")
+                            .field("aabb", &node.aabb)
+                            .field("shape", &self.bvh.objects[shape_id.0])
+                            .finish(),
+                        NodeKind::Branch(left, right) => f
+                            .debug_struct("Node")
+                            .field("aabb", &node.aabb)
+                            .field(
+                                "left",
+                                &NodeDebug {
+                                    bvh: self.bvh,
+                                    id: left,
+                                },
+                            )
+                            .field(
+                                "right",
+                                &NodeDebug {
+                                    bvh: self.bvh,
+                                    id: right,
+                                },
+                            )
+                            .finish(),
+                    }
+                }
+            }
+
+            f.debug_struct("BVH")
+                .field(
+                    "nodes",
+                    &NodeDebug {
+                        id: self.root,
+                        bvh: self,
+                    },
+                )
+                .finish()
+        }
+    }
+
     impl BVH {
+        pub fn new(objects: Vec<Shape>) -> Self {
+            RecursiveBinarySplitBVHBuilder::build(objects)
+        }
+
         pub fn intersection<'a>(&'a self, ray: &Ray) -> Option<(Intersection, &'a Shape)> {
             fn intersection<'a>(
                 bvh: &'a BVH,
@@ -436,7 +490,26 @@ mod bvh {
                     .unwrap()
             }
 
-            fn build_recursive(bvh: &mut BVH, object_ids: Vec<usize>) -> NodeId {
+            enum Axis {
+                X,
+                Y,
+                Z,
+            }
+
+            fn find_longest_axis(aabb: &AxisAlignedBox) -> Axis {
+                let x = aabb.max.x - aabb.min.x;
+                let y = aabb.max.y - aabb.min.y;
+                let z = aabb.max.z - aabb.min.z;
+                if x > y && x > z {
+                    Axis::X
+                } else if y > z {
+                    Axis::Y
+                } else {
+                    Axis::Z
+                }
+            }
+
+            fn build_recursive(bvh: &mut BVH, mut object_ids: Vec<usize>) -> NodeId {
                 if object_ids.len() == 1 {
                     let id = object_ids[0];
                     let node_id = NodeId(bvh.nodes.len());
@@ -446,7 +519,31 @@ mod bvh {
                     });
                     return node_id;
                 }
-                todo!()
+                let bb = aabb(bvh, &object_ids);
+                let longest_axis = find_longest_axis(&bb);
+
+                let get_center = |object_id: usize| {
+                    let center = bvh.objects[object_id].center();
+                    match longest_axis {
+                        Axis::X => center.x,
+                        Axis::Y => center.y,
+                        Axis::Z => center.z,
+                    }
+                };
+
+                object_ids.sort_unstable_by(|left, right| {
+                    get_center(*left).total_cmp(&get_center(*right))
+                });
+
+                let mid = object_ids.len() / 2;
+                let left = build_recursive(bvh, object_ids[0..mid].to_vec());
+                let right = build_recursive(bvh, object_ids[mid..].to_vec());
+                let node_id = NodeId(bvh.nodes.len());
+                bvh.nodes.push(Node {
+                    aabb: bb,
+                    kind: NodeKind::Branch(left, right),
+                });
+                node_id
             }
 
             bvh.root = build_recursive(&mut bvh, object_ids);
