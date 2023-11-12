@@ -235,7 +235,7 @@ impl App {
                     view: &view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                        load: wgpu::LoadOp::Clear(wgpu::Color::GREEN),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -360,8 +360,8 @@ async fn main_wgpu(bvh: BVH) -> anyhow::Result<()> {
     }
 
     let screen_size = ScreenSize {
-        width: WIDTH as u32,
-        height: HEIGHT as u32,
+        width: WIDTH,
+        height: HEIGHT,
     };
 
     let screen_size_uniform = device.create_buffer_init(&BufferInitDescriptor {
@@ -395,6 +395,7 @@ async fn main_wgpu(bvh: BVH) -> anyhow::Result<()> {
         },
         primitive: PrimitiveState {
             topology: wgpu::PrimitiveTopology::TriangleStrip,
+            front_face: wgpu::FrontFace::Ccw,
             ..Default::default()
         },
         depth_stencil: None,
@@ -411,12 +412,13 @@ async fn main_wgpu(bvh: BVH) -> anyhow::Result<()> {
         multiview: None,
     });
     let quad: [Vec3; 4] = [
-        Vec3::new(-1., -1., 0.),
-        Vec3::new(-1., 1., 0.),
-        Vec3::new(1., 1., 0.),
-        Vec3::new(1., -1., 0.),
+        Vec3::new(-1., -1., 0.5),
+        Vec3::new(1., -1., 0.5),
+        Vec3::new(1., 1., 0.5),
+        Vec3::new(-1., 1., 0.5),
     ];
-    use zerocopy::AsBytes;
+    dbg!(core::mem::size_of_val(&quad));
+    dbg!(core::mem::size_of::<Vec3>());
     let quad_buffer = device.create_buffer_init(&BufferInitDescriptor {
         label: None,
         contents: quad.as_bytes(),

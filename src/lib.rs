@@ -7,6 +7,7 @@ pub struct Vec3 {
     pub x: f32,
     pub y: f32,
     pub z: f32,
+    _pad: f32,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -21,6 +22,7 @@ impl From<f32> for Vec3 {
             x: value,
             y: value,
             z: value,
+            ..Default::default()
         }
     }
 }
@@ -35,6 +37,7 @@ impl Vec3 {
             x: self.x * number,
             y: self.y * number,
             z: self.z * number,
+            ..Default::default()
         }
     }
     pub fn scalar_div(&self, number: f32) -> Self {
@@ -42,6 +45,7 @@ impl Vec3 {
             x: self.x / number,
             y: self.y / number,
             z: self.z / number,
+            ..Default::default()
         }
     }
     pub fn magnitude(&self) -> f32 {
@@ -52,6 +56,7 @@ impl Vec3 {
             x: self.y * other.z - self.z * other.y,
             y: self.z * other.x - self.x * other.z,
             z: self.x * other.y - self.y * other.x,
+            ..Default::default()
         }
     }
     pub fn dot(&self, other: &Self) -> f32 {
@@ -63,6 +68,7 @@ impl Vec3 {
             x: self.x.min(other.x),
             y: self.y.min(other.y),
             z: self.z.min(other.z),
+            ..Default::default()
         }
     }
 
@@ -71,6 +77,7 @@ impl Vec3 {
             x: self.x.max(other.x),
             y: self.y.max(other.y),
             z: self.z.max(other.z),
+            ..Default::default()
         }
     }
 
@@ -79,11 +86,17 @@ impl Vec3 {
             x: self.x.abs(),
             y: self.y.abs(),
             z: self.z.abs(),
+            ..Default::default()
         }
     }
 
     pub fn new(x: f32, y: f32, z: f32) -> Vec3 {
-        Self { x, y, z }
+        Self {
+            x,
+            y,
+            z,
+            ..Default::default()
+        }
     }
 }
 
@@ -103,6 +116,7 @@ impl Add<Vec3> for Vec3 {
             x: self.x + rhs.x,
             y: self.y + rhs.y,
             z: self.z + rhs.z,
+            ..Default::default()
         }
     }
 }
@@ -115,6 +129,7 @@ impl Add<f32> for Vec3 {
             x: self.x + rhs,
             y: self.y + rhs,
             z: self.z + rhs,
+            ..Default::default()
         }
     }
 }
@@ -127,6 +142,7 @@ impl Sub<f32> for Vec3 {
             x: self.x - rhs,
             y: self.y - rhs,
             z: self.z - rhs,
+            ..Default::default()
         }
     }
 }
@@ -147,6 +163,7 @@ impl Sub<Vec3> for Vec3 {
             x: self.x - rhs.x,
             y: self.y - rhs.y,
             z: self.z - rhs.z,
+            ..Default::default()
         }
     }
 }
@@ -167,6 +184,7 @@ impl Div<Vec3> for Vec3 {
             x: self.x / rhs.x,
             y: self.y / rhs.y,
             z: self.z / rhs.z,
+            ..Default::default()
         }
     }
 }
@@ -179,6 +197,7 @@ impl Div<f32> for Vec3 {
             x: self.x / rhs,
             y: self.y / rhs,
             z: self.z / rhs,
+            ..Default::default()
         }
     }
 }
@@ -191,6 +210,7 @@ impl Mul<f32> for Vec3 {
             x: self.x * rhs,
             y: self.y * rhs,
             z: self.z * rhs,
+            ..Default::default()
         }
     }
 }
@@ -212,6 +232,7 @@ impl Sphere {
             x: ray.origin.x - sphere.center.x,
             y: ray.origin.y - sphere.center.y,
             z: ray.origin.z - sphere.center.z,
+            ..Default::default()
         };
 
         let a = ray.direction.dot(&ray.direction);
@@ -239,6 +260,7 @@ impl Sphere {
             x: ray.origin.x + t * ray.direction.x,
             y: ray.origin.y + t * ray.direction.y,
             z: ray.origin.z + t * ray.direction.z,
+            ..Default::default()
         };
         let normal = (coord - self.center).normalize();
         Some(Intersection { coord, normal })
