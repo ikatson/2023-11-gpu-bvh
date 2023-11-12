@@ -1,10 +1,10 @@
-use std::ops::{Add, Div, Sub};
+use std::ops::{Add, Div, Mul, Sub};
 
 #[derive(Clone, Copy, Default, Debug)]
 pub struct Vec3 {
-    x: f32,
-    y: f32,
-    z: f32,
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -169,6 +169,18 @@ impl Div<f32> for Vec3 {
             x: self.x / rhs,
             y: self.y / rhs,
             z: self.z / rhs,
+        }
+    }
+}
+
+impl Mul<f32> for Vec3 {
+    type Output = Self;
+
+    fn mul(self, rhs: f32) -> Self::Output {
+        Self {
+            x: self.x * rhs,
+            y: self.y * rhs,
+            z: self.z * rhs,
         }
     }
 }
@@ -485,10 +497,6 @@ mod bvh {
             ) -> Option<(Intersection, &'a Shape)> {
                 let node = bvh.nodes.get(node_id.0)?;
                 if !node.aabb.intersects_branchless(ray) {
-                    println!(
-                        "no intersection of {:?} with {:?}, aabb: {:?}",
-                        ray, node_id, node.aabb
-                    );
                     return None;
                 }
                 fn filter_by_normal(ray: &Ray, intersection: Intersection) -> Option<Intersection> {
@@ -678,7 +686,8 @@ mod tests {
         let bvh = BVH::new(shapes);
         let ray = {
             let mut ray = crate::Ray {
-                origin: Vec3::new(4., 0., 0.),
+                // starts "inside" the first sphere. Should hit it
+                origin: Vec3::new(0.5, 0., 0.),
                 direction: Vec3::default(),
             };
             ray.direction = (Vec3::new(0., 0., 8.) - ray.origin).normalize();
