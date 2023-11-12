@@ -1,13 +1,21 @@
+use anyhow::Context;
 use std::{
+    borrow::Cow,
     fs::File,
     io::BufWriter,
     path::Path,
     sync::atomic::{AtomicU8, Ordering},
 };
+use zerocopy::AsBytes;
 
-use anyhow::Context;
-
-use wgpu::{RenderPassColorAttachment, RenderPassDescriptor, TextureViewDescriptor};
+use wgpu::{
+    util::{BufferInitDescriptor, DeviceExt},
+    BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor, BufferUsages, ColorTargetState,
+    ColorWrites, FragmentState, PipelineLayout, PipelineLayoutDescriptor, PrimitiveState,
+    RenderPassColorAttachment, RenderPassDescriptor, RenderPipelineDescriptor,
+    ShaderModuleDescriptor, TextureViewDescriptor, VertexAttribute, VertexBufferLayout,
+    VertexState,
+};
 use winit::{
     event::{Event, WindowEvent},
     event_loop::EventLoop,
@@ -173,6 +181,12 @@ macro_rules! timeit {
 struct App {
     bvh: BVH,
     camera: PerspectiveCamera,
+    render_pipeline: wgpu::RenderPipeline,
+    render_pipeline_bgl: wgpu::BindGroupLayout,
+    quad_buffer: wgpu::Buffer,
+    screen_size_uniform: wgpu::Buffer,
+    output_width: u32,
+    output_height: u32,
 }
 
 impl App {
@@ -182,35 +196,69 @@ impl App {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> anyhow::Result<()> {
+        let image = render_bvh_perspective(
+            &self.bvh,
+            &self.camera,
+            self.output_width as usize,
+            self.output_height as usize,
+        );
+        let image_buf = device.create_buffer_init(&BufferInitDescriptor {
+            label: None,
+            contents: image.pixels.as_bytes(),
+            usage: BufferUsages::STORAGE,
+        });
+        let bind_group = device.create_bind_group(&BindGroupDescriptor {
+            label: None,
+            layout: &self.render_pipeline_bgl,
+            entries: &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Buffer(image_buf.as_entire_buffer_binding()),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Buffer(
+                        self.screen_size_uniform.as_entire_buffer_binding(),
+                    ),
+                },
+            ],
+        });
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         let view = texture
             .texture
             .create_view(&TextureViewDescriptor::default());
-        let rpass = encoder.begin_render_pass(&RenderPassDescriptor {
-            label: None,
-            color_attachments: &[Some(RenderPassColorAttachment {
-                view: &view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-        });
-        todo!()
+        {
+            let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
+                label: None,
+                color_attachments: &[Some(RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            rpass.set_pipeline(&self.render_pipeline);
+            rpass.set_vertex_buffer(0, self.quad_buffer.slice(..));
+            rpass.set_bind_group(0, &bind_group, &[]);
+            rpass.draw(0..4, 0..1);
+        }
+        queue.submit(Some(encoder.finish()));
+        Ok(())
     }
 }
 
 async fn main_wgpu(bvh: BVH) -> anyhow::Result<()> {
     let el = EventLoop::new()?;
-    const WIDTH: usize = 640;
-    const HEIGHT: usize = 480;
+    const WIDTH: u32 = 640;
+    const HEIGHT: u32 = 480;
     let window = WindowBuilder::new()
-        .with_inner_size(winit::dpi::PhysicalSize::new(WIDTH as i32, HEIGHT as i32))
+        .with_inner_size(winit::dpi::PhysicalSize::new(WIDTH, HEIGHT))
         .build(&el)?;
 
     let instance = wgpu::Instance::default();
@@ -247,25 +295,144 @@ async fn main_wgpu(bvh: BVH) -> anyhow::Result<()> {
         aspect: ASPECT,
     };
 
-    let format = wgpu::TextureFormat::Rgba8Unorm;
-    let dst_texture = device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("destination"),
-        size: wgpu::Extent3d {
+    let capabilities = surface.get_capabilities(&adapter);
+    surface.configure(
+        &device,
+        &wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format: capabilities.formats[0],
             width: WIDTH as u32,
             height: HEIGHT as u32,
-            depth_or_array_layers: 1,
+            present_mode: wgpu::PresentMode::Fifo,
+            alpha_mode: wgpu::CompositeAlphaMode::Auto,
+            view_formats: Default::default(),
         },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-        view_formats: &[],
+    );
+
+    let shader = device.create_shader_module(ShaderModuleDescriptor {
+        label: None,
+        source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("draw.wgsl"))),
     });
 
-    let dst_view = dst_texture.create_view(&wgpu::TextureViewDescriptor::default());
+    let render_pipeline_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: None,
+        entries: &[
+            // The input image
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                // ty: wgpu::BindingType::Texture {
+                //     sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                //     view_dimension: wgpu::TextureViewDimension::D2,
+                //     multisampled: false,
+                // },
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            // Uniforms (screen size)
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                // ty: wgpu::BindingType::Texture {
+                //     sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                //     view_dimension: wgpu::TextureViewDimension::D2,
+                //     multisampled: false,
+                // },
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+        ],
+    });
 
-    let mut app = App { bvh, camera };
+    #[derive(zerocopy_derive::AsBytes)]
+    #[repr(C)]
+    struct ScreenSize {
+        width: u32,
+        height: u32,
+    }
+
+    let screen_size = ScreenSize {
+        width: WIDTH as u32,
+        height: HEIGHT as u32,
+    };
+
+    let screen_size_uniform = device.create_buffer_init(&BufferInitDescriptor {
+        label: None,
+        contents: screen_size.as_bytes(),
+        usage: BufferUsages::UNIFORM,
+    });
+
+    let render_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+        label: None,
+        // TBDs
+        bind_group_layouts: &[&render_pipeline_bgl],
+        push_constant_ranges: &[],
+    });
+    let render_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
+        label: None,
+        layout: Some(&render_pipeline_layout),
+        vertex: VertexState {
+            module: &shader,
+            entry_point: "main_vs",
+            // Quad vertex buffer
+            buffers: &[VertexBufferLayout {
+                array_stride: core::mem::size_of::<Vec3>() as u64,
+                step_mode: wgpu::VertexStepMode::Vertex,
+                attributes: &[VertexAttribute {
+                    format: wgpu::VertexFormat::Float32x3,
+                    offset: 0,
+                    shader_location: 0,
+                }],
+            }],
+        },
+        primitive: PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleStrip,
+            ..Default::default()
+        },
+        depth_stencil: None,
+        multisample: Default::default(),
+        fragment: Some(FragmentState {
+            module: &shader,
+            entry_point: "main_fs",
+            targets: &[Some(ColorTargetState {
+                format: capabilities.formats[0],
+                blend: None,
+                write_mask: ColorWrites::all(),
+            })],
+        }),
+        multiview: None,
+    });
+    let quad: [Vec3; 4] = [
+        Vec3::new(-1., -1., 0.),
+        Vec3::new(-1., 1., 0.),
+        Vec3::new(1., 1., 0.),
+        Vec3::new(1., -1., 0.),
+    ];
+    use zerocopy::AsBytes;
+    let quad_buffer = device.create_buffer_init(&BufferInitDescriptor {
+        label: None,
+        contents: quad.as_bytes(),
+        usage: BufferUsages::VERTEX,
+    });
+
+    let mut app = App {
+        bvh,
+        camera,
+        render_pipeline,
+        render_pipeline_bgl,
+        quad_buffer,
+        screen_size_uniform,
+        output_width: WIDTH,
+        output_height: HEIGHT,
+    };
 
     el.run(move |event, target| {
         // Have the closure take ownership of the resources.
