@@ -35,7 +35,8 @@ impl Image {
         Self {
             width,
             height,
-            pixels: vec![0; width * height * 3],
+            // bgra
+            pixels: vec![255; width * height * 4],
         }
     }
 }
@@ -49,7 +50,10 @@ impl Image {
         writeln!(file, "{} {}", self.width, self.height)?;
         writeln!(file, "255")?;
         for row in self.pixels.chunks(self.height) {
-            file.write_all(row)?;
+            for pixel in row.chunks(4) {
+                let rgb = [pixel[2], pixel[1], pixel[0]];
+                file.write_all(&rgb)?;
+            }
         }
         Ok(())
     }
@@ -78,37 +82,6 @@ struct PerspectiveCamera {
     direction: Vec3,
     fov: f32,
     aspect: f32,
-}
-
-fn render_bvh_ortho(
-    bvh: &BVH,
-    camera: &OrthoCamera,
-    output_width: usize,
-    output_height: usize,
-) -> Image {
-    // render single-threaded first to ensure it works
-    let mut image = Image::new(output_width, output_height);
-    let forward = camera.direction;
-    let left = camera.direction.cross(&Vec3::new(0., 1., 0.)).normalize();
-    let up = left.cross(&forward).normalize();
-    for x in 0..output_width {
-        for y in 0..output_height {
-            let u = ((x as f32) / (output_width as f32) - 0.5) * camera.width;
-            let v = ((y as f32) / (output_height as f32) - 0.5) * camera.height;
-            let origin = camera.position - left * u + up * v;
-            let ray = Ray {
-                origin,
-                direction: camera.direction,
-            };
-            let i = bvh.intersection(&ray);
-            if let Some(i) = i {
-                image.pixels[y * output_width * 3 + x * 3] = (i.0.normal.x * 255.).abs() as u8;
-                image.pixels[y * output_width * 3 + x * 3 + 1] = (i.0.normal.y * 255.).abs() as u8;
-                image.pixels[y * output_width * 3 + x * 3 + 2] = (i.0.normal.z * 255.).abs() as u8;
-            }
-        }
-    }
-    image
 }
 
 fn render_bvh_perspective(
@@ -158,10 +131,10 @@ fn render_bvh_perspective(
                     let r = rgb.x as u8;
                     let g = rgb.y as u8;
                     let b = rgb.z as u8;
-                    let base_i = pixel * 3;
-                    pixels_view[base_i].store(r, Ordering::Relaxed);
+                    let base_i = pixel * 4;
+                    pixels_view[base_i].store(b, Ordering::Relaxed);
                     pixels_view[base_i + 1].store(g, Ordering::Relaxed);
-                    pixels_view[base_i + 2].store(b, Ordering::Relaxed);
+                    pixels_view[base_i + 2].store(r, Ordering::Relaxed);
                 }
             }
         });
@@ -202,6 +175,26 @@ impl App {
             self.output_width as usize,
             self.output_height as usize,
         );
+
+        // device.create_texture_with_data(
+        //     queue,
+        //     &wgpu::TextureDescriptor {
+        //         label: None,
+        //         size: wgpu::Extent3d {
+        //             width: self.output_width,
+        //             height: self.output_height,
+        //             depth_or_array_layers: 1,
+        //         },
+        //         mip_level_count: 1,
+        //         sample_count: 1,
+        //         dimension: wgpu::TextureDimension::D2,
+        //         format: wgpu::TextureFormat::Bgra8Unorm,
+        //         usage: (),
+        //         view_formats: (),
+        //     },
+        //     data,
+        // );
+
         let image_buf = device.create_buffer_init(&BufferInitDescriptor {
             label: None,
             contents: image.pixels.as_bytes(),
