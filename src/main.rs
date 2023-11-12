@@ -95,6 +95,8 @@ fn render_bvh_perspective(
     output_width: usize,
     output_height: usize,
 ) -> Image {
+    use rayon::prelude::*;
+
     const PI: f32 = std::f32::consts::PI;
     let mut image = Image::new(output_width, output_height);
     let forward = camera.direction;
@@ -107,8 +109,11 @@ fn render_bvh_perspective(
     let hor = camera.fov / 360. * PI;
     let vert = hor / camera.aspect;
 
-    for x in 0..output_width {
-        for y in 0..output_height {
+    let pixels = (0..image.pixels.len())
+        .into_par_iter()
+        .map(|pixel| {
+            let x = pixel % output_width;
+            let y = pixel / output_width;
             let u = (x as f32) / (output_width as f32) - 0.5;
             let v = (y as f32) / (output_height as f32) - 0.5;
             let target = camera.position + camera.direction - left * hor * u + up * vert * v;
@@ -119,12 +124,17 @@ fn render_bvh_perspective(
             };
             let i = bvh.intersection(&ray);
             if let Some(i) = i {
-                image.pixels[y * output_width * 3 + x * 3] = (i.0.normal.x * 255.).abs() as u8;
-                image.pixels[y * output_width * 3 + x * 3 + 1] = (i.0.normal.y * 255.).abs() as u8;
-                image.pixels[y * output_width * 3 + x * 3 + 2] = (i.0.normal.z * 255.).abs() as u8;
+                let r = (i.0.normal.x * 255.).abs() as u8;
+                let g = (i.0.normal.y * 255.).abs() as u8;
+                let b = (i.0.normal.z * 255.).abs() as u8;
+                return [r, g, b];
             }
-        }
-    }
+            [0, 0, 0]
+        })
+        .flatten()
+        .collect::<Vec<_>>();
+
+    image.pixels = pixels;
     image
 }
 
