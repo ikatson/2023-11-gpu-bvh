@@ -191,6 +191,9 @@ pub struct Sphere {
     pub radius: f32,
 }
 impl Sphere {
+    pub fn new(center: Vec3, radius: f32) -> Sphere {
+        Sphere { center, radius }
+    }
     fn intersection(&self, ray: &Ray) -> Option<Intersection> {
         let sphere = *self;
         // sphere ray intersection

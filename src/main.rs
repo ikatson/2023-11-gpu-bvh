@@ -129,28 +129,19 @@ fn render_bvh_perspective(
 }
 
 fn main() {
-    let shapes: Vec<Shape> = vec![
-        Shape::Sphere(Sphere {
-            center: Vec3::new(0., 0., 0.),
-            radius: 1.,
-        }),
-        Shape::Sphere(Sphere {
-            center: Vec3::new(0., 0., 2.),
-            radius: 1.,
-        }),
-        Shape::Sphere(Sphere {
-            center: Vec3::new(0., 0., 4.),
-            radius: 1.,
-        }),
-        Shape::Sphere(Sphere {
-            center: Vec3::new(0., 0., 6.),
-            radius: 1.,
-        }),
-        Shape::Sphere(Sphere {
-            center: Vec3::new(0., 0., 8.),
-            radius: 1.,
-        }),
-    ];
+    const X: usize = 32;
+    const Y: usize = 32;
+    const Z: usize = 32;
+    const RADIUS: f32 = 0.5;
+    let mut shapes = Vec::with_capacity(X * Y * Z);
+    for x in 0..X {
+        for y in 0..Y {
+            for z in 0..Z {
+                let center = Vec3::new(x as f32, y as f32, z as f32);
+                shapes.push(Shape::Sphere(Sphere::new(center, RADIUS)));
+            }
+        }
+    }
     let bvh = BVH::new(shapes);
     // let camera = OrthoCamera::new_from_pos_and_target(
     //     Vec3::new(4., 0., 0.),
@@ -162,8 +153,8 @@ fn main() {
     const HEIGHT: usize = 480;
     const ASPECT: f32 = WIDTH as f32 / HEIGHT as f32;
     const FOV: f32 = 110.;
-    let position = Vec3::new(10., 10., 0.);
-    let target = Vec3::new(0., 0., 4.);
+    let position = Vec3::new(-10., -10., -10.);
+    let target = Vec3::new(16., 16., 16.);
     let camera = PerspectiveCamera {
         position,
         direction: (target - position).normalize(),
