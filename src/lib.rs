@@ -492,7 +492,6 @@ mod bvh {
                     return None;
                 }
                 fn filter_by_normal(ray: &Ray, intersection: Intersection) -> Option<Intersection> {
-                    return Some(intersection);
                     if ray.direction.dot(&intersection.normal) < 0. {
                         Some(intersection)
                     } else {
