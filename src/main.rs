@@ -128,21 +128,35 @@ fn render_bvh_perspective(
     image
 }
 
+macro_rules! timeit {
+    ($name:expr, $expr:expr) => {{
+        let t = std::time::Instant::now();
+        let res = $expr;
+        println!("{}: {:?}", $name, t.elapsed());
+        res
+    }};
+}
+
 fn main() {
     const X: usize = 32;
     const Y: usize = 32;
     const Z: usize = 32;
     const RADIUS: f32 = 0.5;
-    let mut shapes = Vec::with_capacity(X * Y * Z);
-    for x in 0..X {
-        for y in 0..Y {
-            for z in 0..Z {
-                let center = Vec3::new(x as f32, y as f32, z as f32);
-                shapes.push(Shape::Sphere(Sphere::new(center, RADIUS)));
+    let make_shapes = || {
+        let mut shapes = Vec::with_capacity(X * Y * Z);
+        for x in 0..X {
+            for y in 0..Y {
+                for z in 0..Z {
+                    let center = Vec3::new(x as f32, y as f32, z as f32);
+                    shapes.push(Shape::Sphere(Sphere::new(center, RADIUS)));
+                }
             }
         }
-    }
-    let bvh = BVH::new(shapes);
+        shapes
+    };
+    let shapes = timeit!("make shapes", make_shapes());
+
+    let bvh = timeit!("BVH::new", BVH::new(shapes));
     // let camera = OrthoCamera::new_from_pos_and_target(
     //     Vec3::new(4., 0., 0.),
     //     Vec3::new(0., 0., 4.),
@@ -161,6 +175,9 @@ fn main() {
         fov: FOV,
         aspect: ASPECT,
     };
-    let image = render_bvh_perspective(&bvh, &camera, WIDTH, HEIGHT);
+    let image = timeit!(
+        "render_640_480",
+        render_bvh_perspective(&bvh, &camera, WIDTH, HEIGHT)
+    );
     image.write_ppm("/tmp/image.ppm").unwrap();
 }
