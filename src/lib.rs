@@ -71,6 +71,10 @@ impl Vec3 {
             z: self.z.max(other.z),
         }
     }
+
+    pub fn new(x: f32, y: f32, z: f32) -> Vec3 {
+        Self { x, y, z }
+    }
 }
 
 impl<'a> Add<&'a Vec3> for Vec3 {
@@ -174,6 +178,47 @@ pub struct Sphere {
     pub center: Vec3,
     pub radius: f32,
 }
+impl Sphere {
+    fn intersection(&self, ray: &Ray) -> Option<Intersection> {
+        let sphere = *self;
+        // sphere ray intersection
+        // https://en.wikipedia.org/wiki/Line%E2%80%93sphere_intersection
+        let oc = Vec3 {
+            x: ray.origin.x - sphere.center.x,
+            y: ray.origin.y - sphere.center.y,
+            z: ray.origin.z - sphere.center.z,
+        };
+
+        let a = ray.direction.dot(&ray.direction);
+        let b = 2.0 * oc.dot(&ray.direction);
+        let c = oc.dot(&oc) - sphere.radius * sphere.radius;
+
+        let discriminant = b * b - 4.0 * a * c;
+
+        if discriminant < 0.0 {
+            // No intersection
+            return None;
+        }
+
+        let t1 = (-b - discriminant.sqrt()) / (2.0 * a);
+        let t2 = (-b + discriminant.sqrt()) / (2.0 * a);
+
+        // Choose the smaller positive root
+        let t = if t1 >= 0.0 && t1 < t2 { t1 } else { t2 };
+
+        if t < 0.0 {
+            return None;
+        }
+        // Intersection point
+        let coord = Vec3 {
+            x: ray.origin.x + t * ray.direction.x,
+            y: ray.origin.y + t * ray.direction.y,
+            z: ray.origin.z + t * ray.direction.z,
+        };
+        let normal = (coord - self.center).normalize();
+        Some(Intersection { coord, normal })
+    }
+}
 
 pub trait AABB {
     fn aabb(&self) -> AxisAlignedBox;
@@ -196,7 +241,10 @@ impl AABB for AxisAlignedBox {
 
 impl AABB for Shape {
     fn aabb(&self) -> AxisAlignedBox {
-        todo!()
+        match self {
+            Shape::Sphere(s) => s.aabb(),
+            Shape::AAB(a) => *a,
+        }
     }
 }
 
@@ -319,7 +367,10 @@ pub enum Shape {
 }
 impl Shape {
     fn intersection(&self, ray: &Ray) -> Option<Intersection> {
-        todo!()
+        match self {
+            Shape::Sphere(s) => s.intersection(ray),
+            Shape::AAB(a) => todo!(),
+        }
     }
     fn center(&self) -> Vec3 {
         match self {
@@ -430,7 +481,7 @@ mod bvh {
                     return None;
                 }
                 fn filter_by_normal(ray: &Ray, intersection: Intersection) -> Option<Intersection> {
-                    if ray.direction.dot(&intersection.normal) > 0. {
+                    if ray.direction.dot(&intersection.normal) < 0. {
                         Some(intersection)
                     } else {
                         None
@@ -553,3 +604,36 @@ mod bvh {
 }
 
 pub use bvh::BVH;
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_bvh_1_object_works() {
+        let sphere = crate::Shape::Sphere(crate::Sphere {
+            center: crate::Vec3::new(0., 0., 5.),
+            radius: 1.,
+        });
+        let bvh = crate::BVH::new(vec![sphere]);
+        let ray = crate::Ray {
+            origin: crate::Vec3::new(0., 0., 0.),
+            direction: crate::Vec3::new(0., 0., 1.),
+        };
+        let i = bvh.intersection(&ray);
+        assert!(i.is_some());
+    }
+
+    #[test]
+    fn test_bvh_1_object_from_inside_doesnt_work() {
+        let sphere = crate::Shape::Sphere(crate::Sphere {
+            center: crate::Vec3::new(0., 0., 0.),
+            radius: 1.,
+        });
+        let bvh = crate::BVH::new(vec![sphere]);
+        let ray = crate::Ray {
+            origin: crate::Vec3::new(0., 0., 0.),
+            direction: crate::Vec3::new(0., 0., 1.),
+        };
+        let i = bvh.intersection(&ray);
+        assert!(i.is_none());
+    }
+}
