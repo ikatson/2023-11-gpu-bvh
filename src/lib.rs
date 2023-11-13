@@ -616,18 +616,19 @@ mod bvh {
                 node.aabb.tnear(ray).map(|tnear| (node, tnear))
             }
 
+            fn filter_by_normal(ray: &Ray, intersection: Intersection) -> Option<Intersection> {
+                if ray.direction.dot(&intersection.normal) < 0. {
+                    Some(intersection)
+                } else {
+                    None
+                }
+            }
+
             fn traverse<'a>(
                 bvh: &'a BVH,
                 ray: &Ray,
                 intersecting_node: &Node,
             ) -> Option<(Intersection, &'a Shape)> {
-                fn filter_by_normal(ray: &Ray, intersection: Intersection) -> Option<Intersection> {
-                    if ray.direction.dot(&intersection.normal) < 0. {
-                        Some(intersection)
-                    } else {
-                        None
-                    }
-                }
                 let node = intersecting_node;
                 match node.kind {
                     NodeKind::Leaf(shape_id) => {
@@ -638,15 +639,12 @@ mod bvh {
                         Some((i, shape))
                     }
                     NodeKind::Branch(left, right) => {
+                        let trav = |n| traverse(bvh, ray, n);
+                        let get = |id| get_intersecting_node(ray, bvh.get(id)?);
+
                         // Fast path - only one of left or right (or none) matched.
-                        let ((left, lnear), (right, rnear)) = match (
-                            get_intersecting_node(ray, bvh.get(left)?),
-                            get_intersecting_node(ray, bvh.get(right)?),
-                        ) {
-                            (None, None) => return None,
-                            (None, Some((n, _))) | (Some((n, _)), None) => {
-                                return traverse(bvh, ray, n)
-                            }
+                        let ((left, lnear), (right, rnear)) = match (get(left), get(right)) {
+                            (None, n) | (n, None) => return n.and_then(|(n, _)| trav(n)),
                             (Some(l), Some(r)) => (l, r),
                         };
 
@@ -658,22 +656,19 @@ mod bvh {
                             } else {
                                 (right, left)
                             };
-                            return traverse(bvh, ray, near).or_else(|| traverse(bvh, ray, far));
+                            return trav(near).or_else(|| trav(far));
                         }
 
                         // Slow path - traverse both sides. If both hit, return nearest intersection.
-                        traverse(bvh, ray, left)
-                            .into_iter()
-                            .chain(traverse(bvh, ray, right))
-                            .reduce(|l, r| {
-                                let lmag = (l.0.coord - ray.origin).squared_magnitude();
-                                let rmag = (r.0.coord - ray.origin).squared_magnitude();
-                                if lmag < rmag {
-                                    l
-                                } else {
-                                    r
-                                }
-                            })
+                        trav(left).into_iter().chain(trav(right)).reduce(|l, r| {
+                            let lmag = (l.0.coord - ray.origin).squared_magnitude();
+                            let rmag = (r.0.coord - ray.origin).squared_magnitude();
+                            if lmag < rmag {
+                                l
+                            } else {
+                                r
+                            }
+                        })
                     }
                 }
             }
