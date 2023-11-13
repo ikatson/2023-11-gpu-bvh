@@ -607,16 +607,20 @@ mod bvh {
                 .unwrap()
         }
 
+        fn get(&self, id: NodeId) -> Option<&Node> {
+            self.nodes.get(id.0)
+        }
+
         pub fn intersection<'a>(&'a self, ray: &Ray) -> Option<(Intersection, &'a Shape)> {
-            fn intersection<'a>(
+            fn get_intersecting_node<'a>(ray: &Ray, node: &'a Node) -> Option<(&'a Node, f32)> {
+                node.aabb.tnear(ray).map(|tnear| (node, tnear))
+            }
+
+            fn traverse<'a>(
                 bvh: &'a BVH,
                 ray: &Ray,
-                node_id: NodeId,
+                intersecting_node: &Node,
             ) -> Option<(Intersection, &'a Shape)> {
-                let node = bvh.nodes.get(node_id.0)?;
-                if !node.aabb.intersects_vectors(ray) {
-                    return None;
-                }
                 fn filter_by_normal(ray: &Ray, intersection: Intersection) -> Option<Intersection> {
                     if ray.direction.dot(&intersection.normal) < 0. {
                         Some(intersection)
@@ -624,6 +628,7 @@ mod bvh {
                         None
                     }
                 }
+                let node = intersecting_node;
                 match node.kind {
                     NodeKind::Leaf(shape_id) => {
                         let shape = &bvh.objects[shape_id.0];
@@ -633,28 +638,46 @@ mod bvh {
                         Some((i, shape))
                     }
                     NodeKind::Branch(left, right) => {
-                        let left = intersection(bvh, ray, left);
-                        let right = intersection(bvh, ray, right);
-                        match (left, right) {
-                            (None, None) => None,
-                            (None, Some(r)) | (Some(r), None) => Some(r),
-                            (Some(l), Some(r)) => {
-                                // pick the earlier intersection
-                                //
-                                // not great algo, but whatever
+                        // Fast path - only one of left or right (or none) matched.
+                        let ((left, lnear), (right, rnear)) = match (
+                            get_intersecting_node(ray, bvh.get(left)?),
+                            get_intersecting_node(ray, bvh.get(right)?),
+                        ) {
+                            (None, None) => return None,
+                            (None, Some((n, _))) | (Some((n, _)), None) => {
+                                return traverse(bvh, ray, n)
+                            }
+                            (Some(l), Some(r)) => (l, r),
+                        };
+
+                        // Fast path, left and right AABBs don't intersect.
+                        if !left.aabb.intersects_other_aabb(&right.aabb) {
+                            // If the nearest hits, return it.
+                            let (near, far) = if lnear < rnear {
+                                (left, right)
+                            } else {
+                                (right, left)
+                            };
+                            return traverse(bvh, ray, near).or_else(|| traverse(bvh, ray, far));
+                        }
+
+                        traverse(bvh, ray, left)
+                            .into_iter()
+                            .chain(traverse(bvh, ray, right))
+                            .reduce(|l, r| {
                                 let lmag = (l.0.coord - ray.origin).squared_magnitude();
                                 let rmag = (r.0.coord - ray.origin).squared_magnitude();
                                 if lmag < rmag {
-                                    Some(l)
+                                    l
                                 } else {
-                                    Some(r)
+                                    r
                                 }
-                            }
-                        }
+                            })
                     }
                 }
             }
-            intersection(self, ray, self.root)
+            let (root, _) = get_intersecting_node(ray, self.get(self.root)?)?;
+            traverse(self, ray, root)
         }
     }
 
