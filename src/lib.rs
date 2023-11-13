@@ -7,6 +7,8 @@ pub struct Vec3 {
     pub x: f32,
     pub y: f32,
     pub z: f32,
+    // for wgsl
+    _pad: [u8; 4],
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -169,7 +171,8 @@ impl Mul<f32> for Vec3 {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, zerocopy_derive::AsBytes)]
+#[repr(C)]
 pub struct Sphere {
     pub center: Vec3,
     pub radius: f32,
@@ -261,7 +264,8 @@ pub struct Plane {
 
 impl Plane {}
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default, zerocopy_derive::AsBytes)]
+#[repr(C)]
 pub struct AxisAlignedBox {
     // I can represent multiple ways:
     // 2 opposite corners (6 * f32)
@@ -329,16 +333,7 @@ impl AxisAlignedBox {
     }
 
     pub fn intersects_vectors(&self, ray: &Ray) -> bool {
-        let tnear = f32::NEG_INFINITY;
-        let tfar = f32::INFINITY;
-        let t1 = (self.min - ray.origin) / ray.direction;
-        let t2 = (self.max - ray.origin) / ray.direction;
-        let (t1, t2) = (t1.min(&t2), t1.max(&t2));
-
-        let tnear = tnear.max(t1.x).max(t1.y).max(t1.z);
-        let tfar = tfar.min(t2.x).min(t2.y).min(t2.z);
-
-        tnear < tfar
+        self.tnear(ray).is_some()
     }
 
     pub fn tnear(&self, ray: &Ray) -> Option<f32> {
@@ -429,7 +424,9 @@ impl Shape {
 // - left and right MIGHT be intersecting, and we must check both, and pick the earlier (in time) intersection.
 
 mod bvh {
-    use crate::{AxisAlignedBox, Intersection, Ray, Shape, AABB};
+    use wgpu::{util::DeviceExt, BindGroupEntry, BindGroupLayoutEntry, BufferUsages, ShaderStages};
+
+    use crate::{AxisAlignedBox, Intersection, Ray, Shape, Sphere, AABB};
 
     #[derive(Clone, Copy, Debug, Default)]
     struct ShapeId(usize);
@@ -697,9 +694,156 @@ mod bvh {
             bvh
         }
     }
+
+    #[derive(Debug, Default, zerocopy_derive::AsBytes)]
+    #[repr(C)]
+    struct GPUBVHNode {
+        aabb: AxisAlignedBox,
+        // bool isn't host shareable
+        is_leaf: u32,
+
+        // If leaf, this is sphere id.
+        // If branch, id1 is left, id2 is right.
+        id1: u32,
+        id2: u32,
+    }
+
+    pub struct GPUBVH {
+        // objects: Vec<Sphere>,
+        // nodes: Vec<GPUBVHNode>,
+        pub objects_buf: wgpu::Buffer,
+        pub nodes_buf: wgpu::Buffer,
+        pub meta_buf: wgpu::Buffer,
+        pub bgl: wgpu::BindGroupLayout,
+        pub bind_group: wgpu::BindGroup,
+    }
+
+    impl GPUBVH {
+        pub fn new(bvh: &BVH, device: &wgpu::Device) -> Self {
+            use zerocopy::AsBytes;
+
+            let objects = bvh
+                .objects
+                .iter()
+                .map(|s| match s {
+                    Shape::Sphere(s) => *s,
+                    _ => unimplemented!(),
+                })
+                .collect::<Vec<_>>();
+            let nodes = bvh
+                .nodes
+                .iter()
+                .map(|n| {
+                    let mut result = GPUBVHNode {
+                        aabb: n.aabb,
+                        ..Default::default()
+                    };
+                    match n.kind {
+                        NodeKind::Leaf(shape_id) => {
+                            result.is_leaf = 1;
+                            result.id1 = shape_id.0 as u32;
+                        }
+                        NodeKind::Branch(l, r) => {
+                            result.is_leaf = 0;
+                            result.id1 = l.0 as u32;
+                            result.id2 = r.0 as u32;
+                        }
+                    }
+                    result
+                })
+                .collect::<Vec<_>>();
+            let objects = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: None,
+                contents: objects.as_bytes(),
+                usage: BufferUsages::STORAGE,
+            });
+            let nodes = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: None,
+                contents: nodes.as_bytes(),
+                usage: BufferUsages::STORAGE,
+            });
+
+            #[derive(zerocopy_derive::AsBytes)]
+            #[repr(C)]
+            struct BVHMeta {
+                root_id: u32,
+            }
+            let meta = BVHMeta {
+                root_id: bvh.root.0 as u32,
+            };
+            let meta = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: None,
+                contents: meta.as_bytes(),
+                usage: BufferUsages::UNIFORM,
+            });
+
+            let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: None,
+                entries: &[
+                    BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                ],
+            });
+
+            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: None,
+                layout: &bgl,
+                entries: &[
+                    BindGroupEntry {
+                        binding: 0,
+                        resource: objects.as_entire_binding(),
+                    },
+                    BindGroupEntry {
+                        binding: 1,
+                        resource: nodes.as_entire_binding(),
+                    },
+                    BindGroupEntry {
+                        binding: 2,
+                        resource: meta.as_entire_binding(),
+                    },
+                ],
+            });
+
+            Self {
+                objects_buf: objects,
+                nodes_buf: nodes,
+                meta_buf: meta,
+                bgl,
+                bind_group,
+            }
+        }
+    }
 }
 
-pub use bvh::BVH;
+pub use bvh::{BVH, GPUBVH};
 
 #[cfg(test)]
 mod tests {

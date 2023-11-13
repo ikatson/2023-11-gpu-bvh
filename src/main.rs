@@ -12,16 +12,18 @@ use zerocopy::AsBytes;
 
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
-    BindGroupDescriptor, BindGroupEntry, BufferUsages, FragmentState, PipelineLayoutDescriptor, PrimitiveState,
-    RenderPassColorAttachment, RenderPassDescriptor, RenderPipelineDescriptor, SamplerDescriptor,
-    ShaderModuleDescriptor, TextureUsages, TextureViewDescriptor, VertexAttribute,
+    BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry,
+    BufferUsages, CommandEncoderDescriptor, ComputePassDescriptor, ComputePipelineDescriptor,
+    Extent3d, FragmentState, PipelineLayoutDescriptor, PrimitiveState, RenderPassColorAttachment,
+    RenderPassDescriptor, RenderPipelineDescriptor, SamplerDescriptor, ShaderModuleDescriptor,
+    ShaderStages, TextureDescriptor, TextureUsages, TextureViewDescriptor, VertexAttribute,
     VertexBufferLayout, VertexState,
 };
 use winit::{
     event::{Event, StartCause, WindowEvent},
     event_loop::EventLoop,
     keyboard::KeyCode,
-    window::{WindowBuilder},
+    window::WindowBuilder,
 };
 
 use bvh::*;
@@ -79,6 +81,8 @@ impl OrthoCamera {
     }
 }
 
+#[derive(zerocopy_derive::AsBytes, Clone, Copy)]
+#[repr(C)]
 struct PerspectiveCamera {
     position: Vec3,
     direction: Vec3,
@@ -155,6 +159,7 @@ macro_rules! timeit {
 
 struct App {
     bvh: BVH,
+    gpu_bvh: GPUBVH,
     camera: PerspectiveCamera,
     render_pipeline: wgpu::RenderPipeline,
     render_pipeline_bgl: wgpu::BindGroupLayout,
@@ -164,6 +169,9 @@ struct App {
     output_height: u32,
     pressed_keys: HashSet<winit::keyboard::PhysicalKey>,
     time: Instant,
+    compute_pipeline: wgpu::ComputePipeline,
+    compute_pipeline_render_bgl: wgpu::BindGroupLayout,
+    compute_output_texture: wgpu::Texture,
 }
 
 impl App {
@@ -223,6 +231,54 @@ impl App {
         self.camera.position = self.camera.position + direction;
     }
 
+    fn render_to_compute_texture(&self, device: &wgpu::Device, queue: &wgpu::Queue) {
+        let u = ComputePipelineUniforms {
+            width: self.output_width,
+            height: self.output_height,
+            camera: self.camera,
+        };
+        let u = device.create_buffer_init(&BufferInitDescriptor {
+            label: None,
+            contents: u.as_bytes(),
+            usage: BufferUsages::UNIFORM,
+        });
+
+        let render_bind_group = device.create_bind_group(&BindGroupDescriptor {
+            label: None,
+            layout: &self.compute_pipeline_render_bgl,
+            entries: &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(
+                        &self.compute_output_texture.create_view(&Default::default()),
+                    ),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: u.as_entire_binding(),
+                },
+            ],
+        });
+
+        let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
+        {
+            let mut cpass = encoder.begin_compute_pass(&ComputePassDescriptor {
+                label: None,
+                timestamp_writes: None,
+            });
+            cpass.set_pipeline(&self.compute_pipeline);
+            cpass.set_bind_group(0, &self.gpu_bvh.bind_group, &[]);
+            cpass.set_bind_group(1, &render_bind_group, &[]);
+            cpass.dispatch_workgroups(
+                self.output_width.div_ceil(8),
+                self.output_height.div_ceil(8),
+                1,
+            );
+        }
+
+        queue.submit(Some(encoder.finish()));
+    }
+
     fn render(
         &self,
         texture: &wgpu::SurfaceTexture,
@@ -235,6 +291,8 @@ impl App {
             self.output_width as usize,
             self.output_height as usize,
         );
+
+        self.render_to_compute_texture(device, queue);
 
         let image_texture = device.create_texture_with_data(
             queue,
@@ -335,6 +393,14 @@ impl App {
     }
 }
 
+#[derive(Clone, Copy, zerocopy_derive::AsBytes)]
+#[repr(C)]
+struct ComputePipelineUniforms {
+    width: u32,
+    height: u32,
+    camera: PerspectiveCamera,
+}
+
 async fn main_wgpu(bvh: BVH) -> anyhow::Result<()> {
     let el = EventLoop::new()?;
     el.set_control_flow(winit::event_loop::ControlFlow::Poll);
@@ -396,6 +462,11 @@ async fn main_wgpu(bvh: BVH) -> anyhow::Result<()> {
     let shader = device.create_shader_module(ShaderModuleDescriptor {
         label: None,
         source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("draw.wgsl"))),
+    });
+
+    let compute_shader = device.create_shader_module(ShaderModuleDescriptor {
+        label: None,
+        source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("bvh.wgsl"))),
     });
 
     let render_pipeline_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -499,15 +570,88 @@ async fn main_wgpu(bvh: BVH) -> anyhow::Result<()> {
         Vec3::new(1., 1., 0.),
         Vec3::new(1., -1., 0.),
     ];
-    dbg!(core::mem::size_of_val(&quad));
-    dbg!(core::mem::size_of::<Vec3>());
     let quad_buffer = device.create_buffer_init(&BufferInitDescriptor {
         label: None,
         contents: quad.as_bytes(),
         usage: BufferUsages::VERTEX,
     });
 
+    let gpu_bvh = GPUBVH::new(&bvh, &device);
+
+    let output_texture = device.create_texture(&TextureDescriptor {
+        label: None,
+        size: Extent3d {
+            width: WIDTH,
+            height: HEIGHT,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba32Float,
+        usage: TextureUsages::TEXTURE_BINDING | TextureUsages::STORAGE_BINDING,
+        view_formats: &[],
+    });
+
+    let compute_pipeline_render_bgl = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+        label: None,
+        entries: &[
+            // Output texture
+            BindGroupLayoutEntry {
+                binding: 0,
+                visibility: ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::StorageTexture {
+                    access: wgpu::StorageTextureAccess::WriteOnly,
+                    format: wgpu::TextureFormat::Rgba32Float,
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                },
+                count: None,
+            },
+            // Screen size
+            BindGroupLayoutEntry {
+                binding: 1,
+                visibility: ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+        ],
+    });
+
+    // let compute_pipeline_render_bind_group = device.create_bind_group(&BindGroupDescriptor {
+    //     label: None,
+    //     layout: &compute_pipeline_render_bgl,
+    //     entries: &[
+    //         BindGroupEntry {
+    //             binding: 0,
+    //             resource: wgpu::BindingResource::TextureView(
+    //                 &output_texture.create_view(&TextureViewDescriptor::default()),
+    //             ),
+    //         },
+    //         BindGroupEntry {
+    //             binding: 1,
+    //             resource: screen_size_uniform.as_entire_binding(),
+    //         },
+    //     ],
+    // });
+
+    let compute_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+        label: None,
+        bind_group_layouts: &[&gpu_bvh.bgl, &compute_pipeline_render_bgl],
+        push_constant_ranges: &[],
+    });
+    let compute_pipeline = device.create_compute_pipeline(&ComputePipelineDescriptor {
+        label: None,
+        layout: Some(&compute_pipeline_layout),
+        module: &compute_shader,
+        entry_point: "render_through_bvh",
+    });
+
     let mut app = App {
+        gpu_bvh,
         bvh,
         camera,
         render_pipeline,
@@ -518,6 +662,9 @@ async fn main_wgpu(bvh: BVH) -> anyhow::Result<()> {
         output_height: HEIGHT,
         pressed_keys: Default::default(),
         time: Instant::now(),
+        compute_pipeline,
+        compute_pipeline_render_bgl,
+        compute_output_texture: output_texture,
     };
 
     el.run(move |event, _target| {
@@ -586,12 +733,12 @@ async fn main_wgpu(bvh: BVH) -> anyhow::Result<()> {
 }
 
 fn main() {
-    // const X: usize = 32;
-    // const Y: usize = 32;
-    // const Z: usize = 32;
-    const X: usize = 8;
-    const Y: usize = 8;
-    const Z: usize = 8;
+    const X: usize = 32;
+    const Y: usize = 32;
+    const Z: usize = 32;
+    // const X: usize = 8;
+    // const Y: usize = 8;
+    // const Z: usize = 8;
     // const X: usize = 4;
     // const Y: usize = 4;
     // const Z: usize = 4;

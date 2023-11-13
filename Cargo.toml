@@ -14,3 +14,6 @@ wgpu = {version = "0.18.0"}
 winit = {version = "0.29", features = ["rwh_05"]}
 zerocopy = "0.7.25"
 zerocopy-derive = "0.7.25"
+
+[profile.release]
+debug = true
