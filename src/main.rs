@@ -596,14 +596,17 @@ fn main() {
     // const X: usize = 4;
     // const Y: usize = 4;
     // const Z: usize = 4;
-    const RADIUS: f32 = 0.49;
+    const RADIUS: f32 = 0.2;
     let make_shapes = || {
         let mut shapes = Vec::with_capacity(X * Y * Z);
         for x in 0..X {
             for y in 0..Y {
                 for z in 0..Z {
                     let center = Vec3::new(x as f32, y as f32, z as f32);
-                    shapes.push(Shape::Sphere(Sphere::new(center, RADIUS)));
+                    shapes.push(Shape::Sphere(Sphere::new(
+                        center,
+                        RADIUS + ((rand::random::<f32>() - 0.5) * 0.3),
+                    )));
                 }
             }
         }

@@ -651,8 +651,8 @@ mod bvh {
                         };
 
                         // Fast path, left and right AABBs don't intersect.
+                        // Traverse nearest first, first hit returns.
                         if !left.aabb.intersects_other_aabb(&right.aabb) {
-                            // If the nearest hits, return it.
                             let (near, far) = if lnear < rnear {
                                 (left, right)
                             } else {
@@ -661,6 +661,7 @@ mod bvh {
                             return traverse(bvh, ray, near).or_else(|| traverse(bvh, ray, far));
                         }
 
+                        // Slow path - traverse both sides. If both hit, return nearest intersection.
                         traverse(bvh, ray, left)
                             .into_iter()
                             .chain(traverse(bvh, ray, right))
