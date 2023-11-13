@@ -495,6 +495,10 @@ mod bvh {
             RecursiveBinarySplitBVHBuilder::build(objects)
         }
 
+        pub fn root_aabb(&self) -> AxisAlignedBox {
+            self.get(self.root).unwrap().aabb
+        }
+
         pub fn intersection_brute_force<'a>(
             &'a self,
             ray: &Ray,
@@ -684,21 +688,22 @@ mod bvh {
     }
 
     #[derive(Debug, Default, zerocopy_derive::AsBytes)]
+    // WGSL:
     #[repr(C)]
     struct GPUBVHNode {
-        aabb: GPUAABB,
+        aabb: GPUAABB, // align=16, offset=0, size=32
 
-        // bool isn't host shareable
-        is_leaf: u32,
+        is_leaf: u32, // align=4, offset=32, size=4
 
         // If leaf, this is sphere id.
         // If branch, id1 is left, id2 is right.
         id1: u32,
         id2: u32,
+        _pad_struct: [u8; 4],
     }
 
     #[derive(Debug, Default, zerocopy_derive::AsBytes)]
-    // WGSL: align=16, sizeof=32
+    // WGSL: align=16, size=32
     #[repr(C)]
     struct GPUAABB {
         min: Vec3,

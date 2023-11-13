@@ -1,3 +1,4 @@
+// Align: 16, sizeof: 32
 struct AABB {
     min: vec3f,
     max: vec3f,
@@ -37,11 +38,16 @@ struct Ray {
     direction: vec3<f32>,
 }
 
+struct Intersection {
+    normal: vec3<f32>,
+    is_hit: bool,
+}
+
 @group(0) @binding(0)
-var<storage, read> bvh_nodes: array<BVHNode>;
+var<storage, read> bvh_objects: array<Sphere>;
 
 @group(0) @binding(1)
-var<storage, read> bvh_objects: array<Sphere>;
+var<storage, read> bvh_nodes: array<BVHNode>;
 
 @group(0) @binding(2)
 var<uniform> bvh_meta: BVHMeta;
@@ -51,6 +57,44 @@ var output: texture_storage_2d<rgba32float, write>;
 
 @group(1) @binding(1)
 var<uniform> uniforms: ComputePassUniforms;
+
+
+fn aabb_tnear(aabb: AABB, ray: Ray) -> f32 {
+    // TODO: handle ray.direction == 0.
+    let t1_tmp = (aabb.min - ray.origin) / ray.direction;
+    let t2_tmp = (aabb.max - ray.origin) / ray.direction;
+
+    let t1 = min(t1_tmp, t2_tmp);
+    let t2 = max(t1_tmp, t2_tmp);
+
+    let tnear = max(max(t1.x, t1.y), t1.z);
+    let tfar = min(min(t2.x, t2.y), t2.z);
+
+    if tnear < tfar {
+        return tnear;
+    } else {
+        return 0.;
+    }
+}
+
+fn bvh_color(ray: Ray) -> vec4f {
+    let i = bvh_intersect(ray);
+    if i.is_hit {
+        return vec4(1.);
+    }
+    return vec4(0.);
+
+    // return vec4(abs(bvh_nodes[bvh_meta.root].aabb.min), 1.);
+}
+
+fn bvh_intersect(ray: Ray) -> Intersection {
+    let root = bvh_meta.root;
+    let tnear = aabb_tnear(bvh_nodes[root].aabb, ray);
+    if tnear == 0. {
+        return Intersection(vec3(0.), false);
+    }
+    return Intersection(vec3(1.), true);
+}
 
 @compute
 @workgroup_size(8, 8, 1)
@@ -77,5 +121,7 @@ fn render_through_bvh(@builtin(global_invocation_id) global_id: vec3<u32>) {
         direction,
     );
 
-    textureStore(output, vec2(x_abs, y_abs), vec4(f32(x_abs) / f32(uniforms.width), f32(y_abs) / f32(uniforms.height), 0., 1.));
+    let color = bvh_color(ray);
+
+    textureStore(output, vec2(x_abs, y_abs), color);
 }

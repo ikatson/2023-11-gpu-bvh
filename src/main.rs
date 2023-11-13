@@ -759,6 +759,7 @@ fn main() {
     let shapes = timeit!("make shapes", make_shapes());
 
     let bvh = timeit!("BVH::new", BVH::new(shapes));
+    dbg!(bvh.root_aabb());
     // let camera = OrthoCamera::new_from_pos_and_target(
     //     Vec3::new(4., 0., 0.),
     //     Vec3::new(0., 0., 4.),
