@@ -539,6 +539,33 @@ mod bvh {
             self.nodes.get(id.0)
         }
 
+        // pub fn intersection_recursion_less<'a>(
+        //     &'a self,
+        //     ray: &Ray,
+        // ) -> Option<(Intersection, &'a Shape)> {
+        //     let mut stack: Vec<NodeId> = vec![self.root];
+        //     while !stack.is_empty() {
+        //         let node = stack.pop().unwrap();
+        //         let node = self.get(node)?;
+        //         if node.aabb.intersects_vectors(ray) {
+        //             match node.kind {
+        //                 NodeKind::Leaf(shape_id) => {
+        //                     let shape = &self.objects[shape_id.0];
+        //                     let i = shape
+        //                         .intersection(ray)
+        //                         .and_then(|i| filter_by_normal(ray, i))?;
+        //                     return Some((i, shape));
+        //                 }
+        //                 NodeKind::Branch(left, right) => {
+        //                     stack.push(right);
+        //                     stack.push(left);
+        //                 }
+        //             }
+        //         }
+        //     }
+        //     todo!()
+        // }
+
         pub fn intersection<'a>(&'a self, ray: &Ray) -> Option<(Intersection, &'a Shape)> {
             fn get_intersecting_node<'a>(ray: &Ray, node: &'a Node) -> Option<(&'a Node, f32)> {
                 node.aabb.tnear(ray).map(|tnear| (node, tnear))
