@@ -340,8 +340,8 @@ async fn main_wgpu(bvh: BVH) -> anyhow::Result<()> {
     let mut el = EventLoop::new()?;
     el.set_control_flow(winit::event_loop::ControlFlow::Poll);
 
-    const WIDTH: u32 = 640;
-    const HEIGHT: u32 = 480;
+    const WIDTH: u32 = 1024;
+    const HEIGHT: u32 = 1024;
     let window = WindowBuilder::new()
         .with_inner_size(winit::dpi::PhysicalSize::new(WIDTH, HEIGHT))
         .build(&el)?;
