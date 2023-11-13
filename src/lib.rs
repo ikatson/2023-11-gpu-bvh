@@ -16,6 +16,16 @@ pub struct Ray {
     pub direction: Vec3,
 }
 
+impl Ray {
+    pub fn nearest_aabb_is_left(&self, left: &AxisAlignedBox, right: &AxisAlignedBox) -> bool {
+        let tmin = (left.min - self.origin).dot(&self.direction);
+        let tmax = (left.max - self.origin).dot(&self.direction);
+        let tmin2 = (right.min - self.origin).dot(&self.direction);
+        let tmax2 = (right.max - self.origin).dot(&self.direction);
+        tmin > tmax2 && tmin2 > tmax
+    }
+}
+
 impl From<f32> for Vec3 {
     fn from(value: f32) -> Self {
         Self {
@@ -390,6 +400,40 @@ impl AxisAlignedBox {
         let tfar = tfar.min(t2.x).min(t2.y).min(t2.z);
 
         tnear < tfar
+    }
+
+    pub fn tnear(&self, ray: &Ray) -> Option<f32> {
+        let tnear = f32::NEG_INFINITY;
+        let tfar = f32::INFINITY;
+        let t1 = (self.min - ray.origin) / ray.direction;
+        let t2 = (self.max - ray.origin) / ray.direction;
+        let (t1, t2) = (t1.min(&t2), t1.max(&t2));
+
+        let tnear = tnear.max(t1.x).max(t1.y).max(t1.z);
+        let tfar = tfar.min(t2.x).min(t2.y).min(t2.z);
+
+        if tnear < tfar {
+            Some(tnear)
+        } else {
+            None
+        }
+    }
+
+    pub fn intersects_other_aabb(&self, other: &Self) -> bool {
+        fn axis_intersects(a_min: f32, a_max: f32, b_min: f32, b_max: f32) -> bool {
+            a_min.max(b_min) <= a_max.min(b_max)
+        }
+        macro_rules! axis {
+            ($axis:tt) => {
+                axis_intersects(
+                    self.min.$axis,
+                    self.max.$axis,
+                    other.min.$axis,
+                    other.max.$axis,
+                )
+            };
+        }
+        axis!(x) && axis!(y) && axis!(z)
     }
 
     fn combine(&self, b: &AxisAlignedBox) -> AxisAlignedBox {
