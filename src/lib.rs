@@ -7,7 +7,6 @@ pub struct Vec3 {
     pub x: f32,
     pub y: f32,
     pub z: f32,
-    _pad: f32,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -28,12 +27,7 @@ impl Ray {
 
 impl From<f32> for Vec3 {
     fn from(value: f32) -> Self {
-        Self {
-            x: value,
-            y: value,
-            z: value,
-            ..Default::default()
-        }
+        Self::new(value, value, value)
     }
 }
 
@@ -43,20 +37,10 @@ impl Vec3 {
         self.scalar_div(len)
     }
     pub fn scalar_mult(&self, number: f32) -> Self {
-        Self {
-            x: self.x * number,
-            y: self.y * number,
-            z: self.z * number,
-            ..Default::default()
-        }
+        Self::new(self.x * number, self.y * number, self.z * number)
     }
     pub fn scalar_div(&self, number: f32) -> Self {
-        Self {
-            x: self.x / number,
-            y: self.y / number,
-            z: self.z / number,
-            ..Default::default()
-        }
+        Self::new(self.x / number, self.y / number, self.z / number)
     }
     pub fn squared_magnitude(&self) -> f32 {
         self.x.powi(2) + self.y.powi(2) + self.z.powi(2)
@@ -65,42 +49,34 @@ impl Vec3 {
         self.squared_magnitude().sqrt()
     }
     pub fn cross(&self, other: &Self) -> Self {
-        Self {
-            x: self.y * other.z - self.z * other.y,
-            y: self.z * other.x - self.x * other.z,
-            z: self.x * other.y - self.y * other.x,
-            ..Default::default()
-        }
+        Self::new(
+            self.y * other.z - self.z * other.y,
+            self.z * other.x - self.x * other.z,
+            self.x * other.y - self.y * other.x,
+        )
     }
     pub fn dot(&self, other: &Self) -> f32 {
         self.x * other.x + self.y * other.y + self.z * other.z
     }
 
     pub fn min(&self, other: &Self) -> Self {
-        Self {
-            x: self.x.min(other.x),
-            y: self.y.min(other.y),
-            z: self.z.min(other.z),
-            ..Default::default()
-        }
+        Self::new(
+            self.x.min(other.x),
+            self.y.min(other.y),
+            self.z.min(other.z),
+        )
     }
 
     pub fn max(&self, other: &Self) -> Self {
-        Self {
-            x: self.x.max(other.x),
-            y: self.y.max(other.y),
-            z: self.z.max(other.z),
-            ..Default::default()
-        }
+        Self::new(
+            self.x.max(other.x),
+            self.y.max(other.y),
+            self.z.max(other.z),
+        )
     }
 
     pub fn abs(&self) -> Self {
-        Self {
-            x: self.x.abs(),
-            y: self.y.abs(),
-            z: self.z.abs(),
-            ..Default::default()
-        }
+        Self::new(self.x.abs(), self.y.abs(), self.z.abs())
     }
 
     pub fn new(x: f32, y: f32, z: f32) -> Vec3 {
@@ -125,12 +101,7 @@ impl Add<Vec3> for Vec3 {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self::Output {
-        Vec3 {
-            x: self.x + rhs.x,
-            y: self.y + rhs.y,
-            z: self.z + rhs.z,
-            ..Default::default()
-        }
+        Vec3::new(self.x + rhs.x, self.y + rhs.y, self.z + rhs.z)
     }
 }
 
@@ -138,12 +109,7 @@ impl Add<f32> for Vec3 {
     type Output = Self;
 
     fn add(self, rhs: f32) -> Self::Output {
-        Vec3 {
-            x: self.x + rhs,
-            y: self.y + rhs,
-            z: self.z + rhs,
-            ..Default::default()
-        }
+        Vec3::new(self.x + rhs, self.y + rhs, self.z + rhs)
     }
 }
 
@@ -151,12 +117,7 @@ impl Sub<f32> for Vec3 {
     type Output = Self;
 
     fn sub(self, rhs: f32) -> Self::Output {
-        Vec3 {
-            x: self.x - rhs,
-            y: self.y - rhs,
-            z: self.z - rhs,
-            ..Default::default()
-        }
+        Vec3::new(self.x - rhs, self.y - rhs, self.z - rhs)
     }
 }
 
@@ -172,12 +133,7 @@ impl Sub<Vec3> for Vec3 {
     type Output = Self;
 
     fn sub(self, rhs: Self) -> Self::Output {
-        Self {
-            x: self.x - rhs.x,
-            y: self.y - rhs.y,
-            z: self.z - rhs.z,
-            ..Default::default()
-        }
+        Vec3::new(self.x - rhs.x, self.y - rhs.y, self.z - rhs.z)
     }
 }
 
@@ -193,12 +149,7 @@ impl Div<Vec3> for Vec3 {
     type Output = Self;
 
     fn div(self, rhs: Self) -> Self::Output {
-        Self {
-            x: self.x / rhs.x,
-            y: self.y / rhs.y,
-            z: self.z / rhs.z,
-            ..Default::default()
-        }
+        Self::new(self.x / rhs.x, self.y / rhs.y, self.z / rhs.z)
     }
 }
 
@@ -206,12 +157,7 @@ impl Div<f32> for Vec3 {
     type Output = Self;
 
     fn div(self, rhs: f32) -> Self::Output {
-        Self {
-            x: self.x / rhs,
-            y: self.y / rhs,
-            z: self.z / rhs,
-            ..Default::default()
-        }
+        Self::new(self.x / rhs, self.y / rhs, self.z / rhs)
     }
 }
 
@@ -219,12 +165,7 @@ impl Mul<f32> for Vec3 {
     type Output = Self;
 
     fn mul(self, rhs: f32) -> Self::Output {
-        Self {
-            x: self.x * rhs,
-            y: self.y * rhs,
-            z: self.z * rhs,
-            ..Default::default()
-        }
+        Self::new(self.x * rhs, self.y * rhs, self.z * rhs)
     }
 }
 
@@ -241,12 +182,11 @@ impl Sphere {
         let sphere = *self;
         // sphere ray intersection
         // https://en.wikipedia.org/wiki/Line%E2%80%93sphere_intersection
-        let oc = Vec3 {
-            x: ray.origin.x - sphere.center.x,
-            y: ray.origin.y - sphere.center.y,
-            z: ray.origin.z - sphere.center.z,
-            ..Default::default()
-        };
+        let oc = Vec3::new(
+            ray.origin.x - sphere.center.x,
+            ray.origin.y - sphere.center.y,
+            ray.origin.z - sphere.center.z,
+        );
 
         let a = ray.direction.dot(&ray.direction);
         let b = 2.0 * oc.dot(&ray.direction);
@@ -269,12 +209,11 @@ impl Sphere {
             return None;
         }
         // Intersection point
-        let coord = Vec3 {
-            x: ray.origin.x + t * ray.direction.x,
-            y: ray.origin.y + t * ray.direction.y,
-            z: ray.origin.z + t * ray.direction.z,
-            ..Default::default()
-        };
+        let coord = Vec3::new(
+            ray.origin.x + t * ray.direction.x,
+            ray.origin.y + t * ray.direction.y,
+            ray.origin.z + t * ray.direction.z,
+        );
         let normal = (coord - self.center).normalize();
         Some(Intersection { coord, normal })
     }
@@ -470,7 +409,7 @@ impl Shape {
     fn intersection(&self, ray: &Ray) -> Option<Intersection> {
         match self {
             Shape::Sphere(s) => s.intersection(ray),
-            Shape::AAB(a) => todo!(),
+            Shape::AAB(_a) => todo!(),
         }
     }
     fn center(&self) -> Vec3 {

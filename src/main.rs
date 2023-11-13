@@ -12,8 +12,7 @@ use zerocopy::AsBytes;
 
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
-    BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor, BufferUsages, ColorTargetState,
-    ColorWrites, FragmentState, PipelineLayout, PipelineLayoutDescriptor, PrimitiveState,
+    BindGroupDescriptor, BindGroupEntry, BufferUsages, FragmentState, PipelineLayoutDescriptor, PrimitiveState,
     RenderPassColorAttachment, RenderPassDescriptor, RenderPipelineDescriptor, SamplerDescriptor,
     ShaderModuleDescriptor, TextureUsages, TextureViewDescriptor, VertexAttribute,
     VertexBufferLayout, VertexState,
@@ -22,7 +21,7 @@ use winit::{
     event::{Event, StartCause, WindowEvent},
     event_loop::EventLoop,
     keyboard::KeyCode,
-    window::{Window, WindowBuilder, WindowId},
+    window::{WindowBuilder},
 };
 
 use bvh::*;
@@ -96,7 +95,7 @@ fn render_bvh_perspective(
     use rayon::prelude::*;
 
     const PI: f32 = std::f32::consts::PI;
-    let mut image = Image::new(output_width, output_height);
+    let image = Image::new(output_width, output_height);
     let forward = camera.direction;
     let left = camera.direction.cross(&Vec3::new(0., 1., 0.)).normalize();
     let up = left.cross(&forward).normalize();
@@ -203,7 +202,7 @@ impl App {
             .direction
             .cross(&Vec3::new(0., 1., 0.))
             .normalize();
-        let up = left.cross(&forward).normalize();
+        let _up = left.cross(&forward).normalize();
         for key in self.pressed_keys.iter().copied() {
             match key {
                 winit::keyboard::PhysicalKey::Code(KeyCode::KeyW) => {
@@ -337,7 +336,7 @@ impl App {
 }
 
 async fn main_wgpu(bvh: BVH) -> anyhow::Result<()> {
-    let mut el = EventLoop::new()?;
+    let el = EventLoop::new()?;
     el.set_control_flow(winit::event_loop::ControlFlow::Poll);
 
     const WIDTH: u32 = 1024;
@@ -521,13 +520,13 @@ async fn main_wgpu(bvh: BVH) -> anyhow::Result<()> {
         time: Instant::now(),
     };
 
-    el.run(move |event, target| {
+    el.run(move |event, _target| {
         // Have the closure take ownership of the resources.
         // `event_loop.run` never returns, therefore we must do this to ensure
         // the resources are properly cleaned up.
         let _ = (&instance, &adapter);
         match event {
-            Event::WindowEvent { window_id, event } => match event {
+            Event::WindowEvent { window_id: _, event } => match event {
                 // WindowEvent::ActivationTokenDone { serial, token } => todo!(),
                 // WindowEvent::Resized(_) => todo!(),
                 // WindowEvent::Moved(_) => todo!(),
@@ -537,7 +536,7 @@ async fn main_wgpu(bvh: BVH) -> anyhow::Result<()> {
                 // WindowEvent::HoveredFile(_) => todo!(),
                 // WindowEvent::HoveredFileCancelled => todo!(),
                 // WindowEvent::Focused(_) => todo!(),
-                WindowEvent::KeyboardInput { device_id, event, is_synthetic } => {
+                WindowEvent::KeyboardInput { device_id: _, event, is_synthetic: _ } => {
                     app.on_keyboard_event(event)
                 },
                 // WindowEvent::ModifiersChanged(_) => todo!(),
@@ -563,12 +562,12 @@ async fn main_wgpu(bvh: BVH) -> anyhow::Result<()> {
                     app.render(&txt, &device, &queue).unwrap();
                     txt.present();
                 }
-                we => {
+                _we => {
                     // dbg!(we);
                 }
             },
             Event::NewEvents(StartCause::Poll) => window.request_redraw(),
-            e => {
+            _e => {
 //                dbg!(e);
             }
             // Event::NewEvents(_) => todo!(),
