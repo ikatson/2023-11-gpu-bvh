@@ -48,8 +48,11 @@ impl Vec3 {
             ..Default::default()
         }
     }
+    pub fn squared_magnitude(&self) -> f32 {
+        self.x.powi(2) + self.y.powi(2) + self.z.powi(2)
+    }
     pub fn magnitude(&self) -> f32 {
-        (self.x.powi(2) + self.y.powi(2) + self.z.powi(2)).sqrt()
+        self.squared_magnitude().sqrt()
     }
     pub fn cross(&self, other: &Self) -> Self {
         Self {
@@ -522,6 +525,42 @@ mod bvh {
     impl BVH {
         pub fn new(objects: Vec<Shape>) -> Self {
             RecursiveBinarySplitBVHBuilder::build(objects)
+        }
+
+        pub fn intersection_brute_force<'a>(
+            &'a self,
+            ray: &Ray,
+        ) -> Option<(Intersection, &'a Shape)> {
+            self.objects
+                .iter()
+                .map(|o| {
+                    // Uncomment if you want to test AABB first.
+                    //
+                    // if o.aabb().intersects_vectors(ray) {
+                    o.intersection(ray).map(|i| (i, o))
+                    // } else {
+                    //     None
+                    // }
+                })
+                .reduce(|l, r| {
+                    match (l, r) {
+                        (None, None) => None,
+                        (None, Some(r)) | (Some(r), None) => Some(r),
+                        (Some(l), Some(r)) => {
+                            // pick the earlier intersection
+                            //
+                            // not great algo, but whatever
+                            let lmag = (l.0.coord - ray.origin).squared_magnitude();
+                            let rmag = (r.0.coord - ray.origin).squared_magnitude();
+                            if lmag < rmag {
+                                Some(l)
+                            } else {
+                                Some(r)
+                            }
+                        }
+                    }
+                })
+                .unwrap()
         }
 
         pub fn intersection<'a>(&'a self, ray: &Ray) -> Option<(Intersection, &'a Shape)> {

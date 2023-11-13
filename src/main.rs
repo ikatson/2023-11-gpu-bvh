@@ -590,9 +590,12 @@ fn main() {
     // const X: usize = 32;
     // const Y: usize = 32;
     // const Z: usize = 32;
-    const X: usize = 4;
-    const Y: usize = 4;
-    const Z: usize = 4;
+    const X: usize = 8;
+    const Y: usize = 8;
+    const Z: usize = 8;
+    // const X: usize = 4;
+    // const Y: usize = 4;
+    // const Z: usize = 4;
     const RADIUS: f32 = 0.5;
     let make_shapes = || {
         let mut shapes = Vec::with_capacity(X * Y * Z);
