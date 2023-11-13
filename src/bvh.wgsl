@@ -22,16 +22,14 @@ struct BVHMeta {
 }
 
 struct ComputePassUniforms {
-    width: u32,
-    height: u32,
-    camera: PerspectiveCamera,
-}
-
-struct PerspectiveCamera {
+    // camera
     position: vec3<f32>,
     direction: vec3<f32>,
     fov: f32,
     aspect: f32,
+
+    width: u32,
+    height: u32,
 }
 
 @group(0) @binding(0)
@@ -52,5 +50,7 @@ var<uniform> u: ComputePassUniforms;
 @compute
 @workgroup_size(8, 8, 1)
 fn render_through_bvh(@builtin(global_invocation_id) global_id: vec3<u32>) {
-    textureStore(output, vec2(5u, 5u), vec4(1., 0., 0., 1.));
+    let x_abs: u32 = global_id.x;
+    let y_abs: u32 = global_id.y;
+    textureStore(output, vec2(x_abs, y_abs), vec4(f32(x_abs) / f32(u.width), f32(y_abs) / f32(u.height), 0., 1.));
 }

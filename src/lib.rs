@@ -7,8 +7,6 @@ pub struct Vec3 {
     pub x: f32,
     pub y: f32,
     pub z: f32,
-    // for wgsl
-    _pad: [u8; 4],
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -171,7 +169,8 @@ impl Mul<f32> for Vec3 {
     }
 }
 
-#[derive(Clone, Copy, Debug, zerocopy_derive::AsBytes)]
+#[derive(Clone, Copy, Debug, Default, zerocopy_derive::AsBytes)]
+// WGPU: align=16, size=16
 #[repr(C)]
 pub struct Sphere {
     pub center: Vec3,
@@ -179,7 +178,11 @@ pub struct Sphere {
 }
 impl Sphere {
     pub fn new(center: Vec3, radius: f32) -> Sphere {
-        Sphere { center, radius }
+        Sphere {
+            center,
+            radius,
+            ..Default::default()
+        }
     }
     fn intersection(&self, ray: &Ray) -> Option<Intersection> {
         let sphere = *self;
@@ -250,22 +253,7 @@ impl AABB for Shape {
     }
 }
 
-#[derive(Clone, Copy)]
-pub struct AxisAlignedQuad {
-    pub min: Vec3,
-    pub max: Vec3,
-}
-
-#[derive(Clone, Copy)]
-pub struct Plane {
-    pub point: Vec3,
-    pub normal: Vec3,
-}
-
-impl Plane {}
-
-#[derive(Clone, Copy, Debug, Default, zerocopy_derive::AsBytes)]
-#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct AxisAlignedBox {
     // I can represent multiple ways:
     // 2 opposite corners (6 * f32)
@@ -426,7 +414,7 @@ impl Shape {
 mod bvh {
     use wgpu::{util::DeviceExt, BindGroupEntry, BindGroupLayoutEntry, BufferUsages, ShaderStages};
 
-    use crate::{AxisAlignedBox, Intersection, Ray, Shape, Sphere, AABB};
+    use crate::{AxisAlignedBox, Intersection, Ray, Shape, Sphere, Vec3, AABB};
 
     #[derive(Clone, Copy, Debug, Default)]
     struct ShapeId(usize);
@@ -698,7 +686,8 @@ mod bvh {
     #[derive(Debug, Default, zerocopy_derive::AsBytes)]
     #[repr(C)]
     struct GPUBVHNode {
-        aabb: AxisAlignedBox,
+        aabb: GPUAABB,
+
         // bool isn't host shareable
         is_leaf: u32,
 
@@ -706,6 +695,16 @@ mod bvh {
         // If branch, id1 is left, id2 is right.
         id1: u32,
         id2: u32,
+    }
+
+    #[derive(Debug, Default, zerocopy_derive::AsBytes)]
+    // WGSL: align=16, sizeof=32
+    #[repr(C)]
+    struct GPUAABB {
+        min: Vec3,
+        _pad: [u8; 4],
+        max: Vec3,
+        _pad_struct: [u8; 4],
     }
 
     pub struct GPUBVH {
@@ -735,7 +734,11 @@ mod bvh {
                 .iter()
                 .map(|n| {
                     let mut result = GPUBVHNode {
-                        aabb: n.aabb,
+                        aabb: GPUAABB {
+                            min: n.aabb.min,
+                            max: n.aabb.max,
+                            ..Default::default()
+                        },
                         ..Default::default()
                     };
                     match n.kind {
@@ -851,10 +854,7 @@ mod tests {
 
     #[test]
     fn test_bvh_1_object_works() {
-        let sphere = Shape::Sphere(Sphere {
-            center: Vec3::new(0., 0., 5.),
-            radius: 1.,
-        });
+        let sphere = Shape::Sphere(Sphere::new(Vec3::new(0., 0., 5.), 1.));
         let bvh = BVH::new(vec![sphere]);
         let ray = crate::Ray {
             origin: Vec3::new(0., 0., 0.),
@@ -867,10 +867,7 @@ mod tests {
 
     #[test]
     fn test_bvh_1_object_from_inside_doesnt_work() {
-        let sphere = Shape::Sphere(Sphere {
-            center: Vec3::new(0., 0., 0.),
-            radius: 1.,
-        });
+        let sphere = Shape::Sphere(Sphere::new(Vec3::new(0., 0., 0.), 1.));
         let bvh = BVH::new(vec![sphere]);
         let ray = crate::Ray {
             origin: Vec3::new(0., 0., 0.),
@@ -883,26 +880,11 @@ mod tests {
     #[test]
     fn test_bvh_multiple_objects() {
         let shapes: Vec<Shape> = vec![
-            Shape::Sphere(Sphere {
-                center: Vec3::new(0., 0., 0.),
-                radius: 1.,
-            }),
-            Shape::Sphere(Sphere {
-                center: Vec3::new(0., 0., 2.),
-                radius: 1.,
-            }),
-            Shape::Sphere(Sphere {
-                center: Vec3::new(0., 0., 4.),
-                radius: 1.,
-            }),
-            Shape::Sphere(Sphere {
-                center: Vec3::new(0., 0., 6.),
-                radius: 1.,
-            }),
-            Shape::Sphere(Sphere {
-                center: Vec3::new(0., 0., 8.),
-                radius: 1.,
-            }),
+            Shape::Sphere(Sphere::new(Vec3::new(0., 0., 0.), 1.)),
+            Shape::Sphere(Sphere::new(Vec3::new(0., 0., 2.), 1.)),
+            Shape::Sphere(Sphere::new(Vec3::new(0., 0., 4.), 1.)),
+            Shape::Sphere(Sphere::new(Vec3::new(0., 0., 6.), 1.)),
+            Shape::Sphere(Sphere::new(Vec3::new(0., 0., 8.), 1.)),
         ];
         let bvh = BVH::new(shapes);
         let ray = {

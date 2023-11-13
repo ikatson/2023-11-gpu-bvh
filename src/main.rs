@@ -81,11 +81,13 @@ impl OrthoCamera {
     }
 }
 
-#[derive(zerocopy_derive::AsBytes, Clone, Copy)]
+#[derive(zerocopy_derive::AsBytes, Clone, Copy, Default)]
 #[repr(C)]
 struct PerspectiveCamera {
     position: Vec3,
+    _pad: [u8; 4],
     direction: Vec3,
+    _pad_2: [u8; 4],
     fov: f32,
     aspect: f32,
 }
@@ -233,9 +235,13 @@ impl App {
 
     fn render_to_compute_texture(&self, device: &wgpu::Device, queue: &wgpu::Queue) {
         let u = ComputePipelineUniforms {
+            position: self.camera.position,
+            direction: self.camera.direction,
+            fov: self.camera.fov,
+            aspect: self.camera.aspect,
             width: self.output_width,
             height: self.output_height,
-            camera: self.camera,
+            ..Default::default()
         };
         let u = device.create_buffer_init(&BufferInitDescriptor {
             label: None,
@@ -285,33 +291,15 @@ impl App {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> anyhow::Result<()> {
-        let image = render_bvh_perspective(
-            &self.bvh,
-            &self.camera,
-            self.output_width as usize,
-            self.output_height as usize,
-        );
+        // let image = render_bvh_perspective(
+        //     &self.bvh,
+        //     &self.camera,
+        //     self.output_width as usize,
+        //     self.output_height as usize,
+        // );
 
         self.render_to_compute_texture(device, queue);
 
-        let image_texture = device.create_texture_with_data(
-            queue,
-            &wgpu::TextureDescriptor {
-                label: None,
-                size: wgpu::Extent3d {
-                    width: self.output_width,
-                    height: self.output_height,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Bgra8Unorm,
-                usage: TextureUsages::TEXTURE_BINDING,
-                view_formats: &[],
-            },
-            image.pixels.as_bytes(),
-        );
         let image_texture_sampler = device.create_sampler(&SamplerDescriptor {
             label: None,
             address_mode_u: wgpu::AddressMode::Repeat,
@@ -338,18 +326,20 @@ impl App {
             entries: &[
                 BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&image_texture.create_view(
-                        &TextureViewDescriptor {
-                            label: None,
-                            format: None,
-                            dimension: None,
-                            aspect: wgpu::TextureAspect::All,
-                            base_mip_level: 0,
-                            mip_level_count: None,
-                            base_array_layer: 0,
-                            array_layer_count: None,
-                        },
-                    )),
+                    resource: wgpu::BindingResource::TextureView(
+                        &self
+                            .compute_output_texture
+                            .create_view(&TextureViewDescriptor {
+                                label: None,
+                                format: None,
+                                dimension: None,
+                                aspect: wgpu::TextureAspect::All,
+                                base_mip_level: 0,
+                                mip_level_count: None,
+                                base_array_layer: 0,
+                                array_layer_count: None,
+                            }),
+                    ),
                 },
                 BindGroupEntry {
                     binding: 1,
@@ -393,12 +383,18 @@ impl App {
     }
 }
 
-#[derive(Clone, Copy, zerocopy_derive::AsBytes)]
+#[derive(Clone, Copy, Default, zerocopy_derive::AsBytes)]
 #[repr(C)]
 struct ComputePipelineUniforms {
+    position: Vec3,
+    _pad: [u8; 4],
+    direction: Vec3,
+    fov: f32,
+    aspect: f32,
+
     width: u32,
     height: u32,
-    camera: PerspectiveCamera,
+    _pad_2: [u8; 4],
 }
 
 async fn main_wgpu(bvh: BVH) -> anyhow::Result<()> {
@@ -443,6 +439,7 @@ async fn main_wgpu(bvh: BVH) -> anyhow::Result<()> {
         direction: (target - position).normalize(),
         fov: FOV,
         aspect: ASPECT,
+        ..Default::default()
     };
 
     let capabilities = surface.get_capabilities(&adapter);
@@ -477,7 +474,7 @@ async fn main_wgpu(bvh: BVH) -> anyhow::Result<()> {
                 binding: 0,
                 visibility: wgpu::ShaderStages::FRAGMENT,
                 ty: wgpu::BindingType::Texture {
-                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    sample_type: wgpu::TextureSampleType::Float { filterable: false },
                     view_dimension: wgpu::TextureViewDimension::D2,
                     multisampled: false,
                 },
@@ -778,6 +775,7 @@ fn main() {
         direction: (target - position).normalize(),
         fov: FOV,
         aspect: ASPECT,
+        ..Default::default()
     };
     let image = timeit!(
         "render_640_480",
