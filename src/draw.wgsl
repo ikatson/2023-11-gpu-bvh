@@ -16,20 +16,8 @@ fn main_vs(
     var out: VertexOutput;
     out.pos = vec4<f32>(quad_vertex.xy, 0., 1.0);
     out.tx_coord = out.pos.xy / 2. + 0.5;
+    out.tx_coord.y *= -1.;
     return out;
-    // if i == 0u {
-    //     return vec4<f32>(-1., 1., 0., 1.);
-    // }
-    // if i == 1u {
-    //     return vec4<f32>(-1., -1., 0., 1.);
-    // }
-    // if i == 2u {
-    //     return vec4<f32>(1., 1., 0., 1.);
-    // }
-    // if i == 3u {
-    //     return vec4<f32>(1., -1., 0., 1.);
-    // }
-    // return vec4<f32>(0.);
 }
 
 struct ScreenSize {
@@ -38,7 +26,6 @@ struct ScreenSize {
 }
 
 @group(0) @binding(0)
-// var input_texture: texture_storage_2d<bgra8unorm, read>;
 var input_texture: texture_2d<f32>;
 
 @group(0) @binding(1)

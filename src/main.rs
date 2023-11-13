@@ -1,10 +1,12 @@
 use anyhow::Context;
 use std::{
     borrow::Cow,
+    collections::HashSet,
     fs::File,
     io::BufWriter,
     path::Path,
     sync::atomic::{AtomicU8, Ordering},
+    time::{Duration, Instant},
 };
 use zerocopy::AsBytes;
 
@@ -17,8 +19,9 @@ use wgpu::{
     VertexBufferLayout, VertexState,
 };
 use winit::{
-    event::{Event, WindowEvent},
+    event::{Event, StartCause, WindowEvent},
     event_loop::EventLoop,
+    keyboard::KeyCode,
     window::{Window, WindowBuilder, WindowId},
 };
 
@@ -160,9 +163,67 @@ struct App {
     screen_size_uniform: wgpu::Buffer,
     output_width: u32,
     output_height: u32,
+    pressed_keys: HashSet<winit::keyboard::PhysicalKey>,
+    time: Instant,
 }
 
 impl App {
+    fn on_keyboard_event(&mut self, event: winit::event::KeyEvent) {
+        let key = match event.physical_key {
+            winit::keyboard::PhysicalKey::Code(KeyCode::KeyW)
+            | winit::keyboard::PhysicalKey::Code(KeyCode::KeyA)
+            | winit::keyboard::PhysicalKey::Code(KeyCode::KeyS)
+            | winit::keyboard::PhysicalKey::Code(KeyCode::KeyD) => event.physical_key,
+            _ => return,
+        };
+        match event.state {
+            winit::event::ElementState::Pressed => {
+                self.pressed_keys.insert(key);
+            }
+            winit::event::ElementState::Released => {
+                self.pressed_keys.remove(&key);
+            }
+        }
+    }
+
+    fn dt(&mut self) -> Duration {
+        let now = Instant::now();
+        let dt = now - self.time;
+        self.time = now;
+        dt
+    }
+
+    fn update(&mut self, dt: &Duration) {
+        let speed = 10.;
+        let dt_secs = dt.as_secs_f32();
+        let mut direction = Vec3::default();
+        let forward = self.camera.direction;
+        let left = self
+            .camera
+            .direction
+            .cross(&Vec3::new(0., 1., 0.))
+            .normalize();
+        let up = left.cross(&forward).normalize();
+        for key in self.pressed_keys.iter().copied() {
+            match key {
+                winit::keyboard::PhysicalKey::Code(KeyCode::KeyW) => {
+                    direction = direction + forward * speed * dt_secs;
+                }
+                winit::keyboard::PhysicalKey::Code(KeyCode::KeyA) => {
+                    direction = direction + left * speed * dt_secs
+                }
+                winit::keyboard::PhysicalKey::Code(KeyCode::KeyS) => {
+                    direction = direction - forward * speed * dt_secs;
+                }
+                winit::keyboard::PhysicalKey::Code(KeyCode::KeyD) => {
+                    direction = direction - left * speed * dt_secs;
+                }
+                _ => {}
+            }
+        }
+        self.camera.position = self.camera.position + direction;
+    }
+
     fn render(
         &self,
         texture: &wgpu::SurfaceTexture,
@@ -276,7 +337,9 @@ impl App {
 }
 
 async fn main_wgpu(bvh: BVH) -> anyhow::Result<()> {
-    let el = EventLoop::new()?;
+    let mut el = EventLoop::new()?;
+    el.set_control_flow(winit::event_loop::ControlFlow::Poll);
+
     const WIDTH: u32 = 640;
     const HEIGHT: u32 = 480;
     let window = WindowBuilder::new()
@@ -454,6 +517,8 @@ async fn main_wgpu(bvh: BVH) -> anyhow::Result<()> {
         screen_size_uniform,
         output_width: WIDTH,
         output_height: HEIGHT,
+        pressed_keys: Default::default(),
+        time: Instant::now(),
     };
 
     el.run(move |event, target| {
@@ -472,7 +537,9 @@ async fn main_wgpu(bvh: BVH) -> anyhow::Result<()> {
                 // WindowEvent::HoveredFile(_) => todo!(),
                 // WindowEvent::HoveredFileCancelled => todo!(),
                 // WindowEvent::Focused(_) => todo!(),
-                // WindowEvent::KeyboardInput { device_id, event, is_synthetic } => todo!(),
+                WindowEvent::KeyboardInput { device_id, event, is_synthetic } => {
+                    app.on_keyboard_event(event)
+                },
                 // WindowEvent::ModifiersChanged(_) => todo!(),
                 // WindowEvent::Ime(_) => todo!(),
                 // WindowEvent::CursorMoved { device_id, position } => todo!(),
@@ -490,15 +557,20 @@ async fn main_wgpu(bvh: BVH) -> anyhow::Result<()> {
                 // WindowEvent::ThemeChanged(_) => todo!(),
                 // WindowEvent::Occluded(_) => todo!(),
                 WindowEvent::RedrawRequested => {
+                    let dt = app.dt();
+                    app.update(&dt);
                     let txt = surface.get_current_texture().unwrap();
-                    println!("hi");
                     app.render(&txt, &device, &queue).unwrap();
                     txt.present();
-                    window.request_redraw();
-                },
-                _ => {}
+                }
+                we => {
+                    // dbg!(we);
+                }
             },
-            _ => {}
+            Event::NewEvents(StartCause::Poll) => window.request_redraw(),
+            e => {
+//                dbg!(e);
+            }
             // Event::NewEvents(_) => todo!(),
             // Event::DeviceEvent { device_id, event } => todo!(),
             // Event::UserEvent(_) => todo!(),
@@ -515,9 +587,12 @@ async fn main_wgpu(bvh: BVH) -> anyhow::Result<()> {
 }
 
 fn main() {
-    const X: usize = 32;
-    const Y: usize = 32;
-    const Z: usize = 32;
+    // const X: usize = 32;
+    // const Y: usize = 32;
+    // const Z: usize = 32;
+    const X: usize = 4;
+    const Y: usize = 4;
+    const Z: usize = 4;
     const RADIUS: f32 = 0.5;
     let make_shapes = || {
         let mut shapes = Vec::with_capacity(X * Y * Z);
