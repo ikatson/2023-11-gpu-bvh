@@ -32,6 +32,11 @@ struct ComputePassUniforms {
     height: u32,
 }
 
+struct Ray {
+    origin: vec3<f32>,
+    direction: vec3<f32>,
+}
+
 @group(0) @binding(0)
 var<storage, read> bvh_nodes: array<BVHNode>;
 
@@ -45,12 +50,32 @@ var<uniform> bvh_meta: BVHMeta;
 var output: texture_storage_2d<rgba32float, write>;
 
 @group(1) @binding(1)
-var<uniform> u: ComputePassUniforms;
+var<uniform> uniforms: ComputePassUniforms;
 
 @compute
 @workgroup_size(8, 8, 1)
 fn render_through_bvh(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let x_abs: u32 = global_id.x;
     let y_abs: u32 = global_id.y;
-    textureStore(output, vec2(x_abs, y_abs), vec4(f32(x_abs) / f32(u.width), f32(y_abs) / f32(u.height), 0., 1.));
+
+    let PI: f32 = 3.1415926;
+    let forward = uniforms.direction;
+    let left = normalize(cross(uniforms.direction, vec3(0., 1., 0.)));
+    let up = normalize(cross(left, forward));
+
+    // fov/2 = hor / dirlen. As dirlen == 1, thus fov/2 = hor
+    // as fov is in degrees, we need to convert to radians also, so
+    // hor = fov/2 * PI / 180
+    let hor = uniforms.fov / 360. * PI;
+    let vert = hor / uniforms.aspect;
+    let u = f32(x_abs) / f32(uniforms.width) - 0.5;
+    let v = f32(y_abs) / f32(uniforms.height) - 0.5;
+    let target_point = uniforms.position + uniforms.direction - left * hor * u + up * vert * v;
+    let direction = normalize(target_point - uniforms.position);
+    let ray = Ray(
+        uniforms.position,
+        direction,
+    );
+
+    textureStore(output, vec2(x_abs, y_abs), vec4(f32(x_abs) / f32(uniforms.width), f32(y_abs) / f32(uniforms.height), 0., 1.));
 }
