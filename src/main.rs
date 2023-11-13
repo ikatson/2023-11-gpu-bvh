@@ -398,14 +398,17 @@ struct ComputePipelineUniforms {
     _pad_struct: [u8; 4],
 }
 
-async fn main_wgpu(bvh: BVH) -> anyhow::Result<()> {
+async fn main_wgpu(
+    bvh: BVH,
+    width: u32,
+    height: u32,
+    camera: &PerspectiveCamera,
+) -> anyhow::Result<()> {
     let el = EventLoop::new()?;
     el.set_control_flow(winit::event_loop::ControlFlow::Poll);
 
-    const WIDTH: u32 = 1024;
-    const HEIGHT: u32 = 1024;
     let window = WindowBuilder::new()
-        .with_inner_size(winit::dpi::PhysicalSize::new(WIDTH, HEIGHT))
+        .with_inner_size(winit::dpi::PhysicalSize::new(width, height))
         .build(&el)?;
 
     let instance = wgpu::Instance::default();
@@ -431,26 +434,14 @@ async fn main_wgpu(bvh: BVH) -> anyhow::Result<()> {
         .await
         .context("error requesting device")?;
 
-    let position = Vec3::new(-10., -10., -10.);
-    let target = Vec3::new(16., 16., 16.);
-    const FOV: f32 = 90.;
-    const ASPECT: f32 = WIDTH as f32 / HEIGHT as f32;
-    let camera = PerspectiveCamera {
-        position,
-        direction: (target - position).normalize(),
-        fov: FOV,
-        aspect: ASPECT,
-        ..Default::default()
-    };
-
     let capabilities = surface.get_capabilities(&adapter);
     surface.configure(
         &device,
         &wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: capabilities.formats[0],
-            width: WIDTH,
-            height: HEIGHT,
+            width,
+            height,
             present_mode: wgpu::PresentMode::Fifo,
             alpha_mode: capabilities.alpha_modes[0],
             view_formats: vec![],
@@ -513,10 +504,7 @@ async fn main_wgpu(bvh: BVH) -> anyhow::Result<()> {
         height: u32,
     }
 
-    let screen_size = ScreenSize {
-        width: WIDTH,
-        height: HEIGHT,
-    };
+    let screen_size = ScreenSize { width, height };
 
     let screen_size_uniform = device.create_buffer_init(&BufferInitDescriptor {
         label: None,
@@ -579,8 +567,8 @@ async fn main_wgpu(bvh: BVH) -> anyhow::Result<()> {
     let output_texture = device.create_texture(&TextureDescriptor {
         label: None,
         size: Extent3d {
-            width: WIDTH,
-            height: HEIGHT,
+            width,
+            height,
             depth_or_array_layers: 1,
         },
         mip_level_count: 1,
@@ -651,13 +639,13 @@ async fn main_wgpu(bvh: BVH) -> anyhow::Result<()> {
     let mut app = App {
         gpu_bvh,
         bvh,
-        camera,
+        camera: *camera,
         render_pipeline,
         render_pipeline_bgl,
         quad_buffer,
         screen_size_uniform,
-        output_width: WIDTH,
-        output_height: HEIGHT,
+        output_width: width,
+        output_height: height,
         pressed_keys: Default::default(),
         time: Instant::now(),
         compute_pipeline,
@@ -701,11 +689,13 @@ async fn main_wgpu(bvh: BVH) -> anyhow::Result<()> {
                 // WindowEvent::ThemeChanged(_) => todo!(),
                 // WindowEvent::Occluded(_) => todo!(),
                 WindowEvent::RedrawRequested => {
-                    let dt = app.dt();
-                    app.update(&dt);
-                    let txt = surface.get_current_texture().unwrap();
-                    app.render(&txt, &device, &queue).unwrap();
-                    txt.present();
+                    timeit!("redraw", {
+                        let dt = app.dt();
+                        app.update(&dt);
+                        let txt = surface.get_current_texture().unwrap();
+                        app.render(&txt, &device, &queue).unwrap();
+                        txt.present();
+                    });
                 }
                 _we => {
                     // dbg!(we);
@@ -731,9 +721,9 @@ async fn main_wgpu(bvh: BVH) -> anyhow::Result<()> {
 }
 
 fn main() {
-    const X: usize = 32;
-    const Y: usize = 32;
-    const Z: usize = 32;
+    const X: usize = 16;
+    const Y: usize = 8;
+    const Z: usize = 16;
     // const X: usize = 8;
     // const Y: usize = 8;
     // const Z: usize = 8;
@@ -749,7 +739,8 @@ fn main() {
                     let center = Vec3::new(x as f32, y as f32, z as f32);
                     shapes.push(Shape::Sphere(Sphere::new(
                         center,
-                        RADIUS + ((rand::random::<f32>() - 0.5) * 0.3),
+                        RADIUS + ((rand::random::<f32>() - 0.5) * 0.4),
+                        // 0.48,
                     )));
                 }
             }
@@ -766,8 +757,8 @@ fn main() {
     //     10.,
     //     10.,
     // );
-    const WIDTH: usize = 640;
-    const HEIGHT: usize = 480;
+    const WIDTH: u32 = 1920;
+    const HEIGHT: u32 = 1080;
     const ASPECT: f32 = WIDTH as f32 / HEIGHT as f32;
     const FOV: f32 = 110.;
     let position = Vec3::new(-10., -10., -10.);
@@ -780,10 +771,10 @@ fn main() {
         ..Default::default()
     };
     let image = timeit!(
-        "render_640_480",
-        render_bvh_perspective(&bvh, &camera, WIDTH, HEIGHT)
+        "render_into_image_cpu",
+        render_bvh_perspective(&bvh, &camera, WIDTH as usize, HEIGHT as usize)
     );
     timeit!("write PPM", image.write_ppm("/tmp/image.ppm").unwrap());
 
-    pollster::block_on(main_wgpu(bvh)).unwrap();
+    pollster::block_on(main_wgpu(bvh, WIDTH, HEIGHT, &camera)).unwrap();
 }

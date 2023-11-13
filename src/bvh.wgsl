@@ -59,12 +59,21 @@ var output: texture_storage_2d<rgba32float, write>;
 @group(1) @binding(1)
 var<uniform> uniforms: ComputePassUniforms;
 
-var<private> stack: array<u32, 32>;
+const FLAGS_EMPTY: u32 = 0u;
+const FLAG_MERGE: u32 = 4u;
+const FLAG_IGNORE_IF_SET: u32 = 4u;
 
-fn aabb_tnear(aabb: AABB, ray: Ray) -> f32 {
+struct StackItem {
+    node_id: u32,
+    flags: u32,
+}
+
+var<private> stack: array<StackItem, 32>;
+
+fn aabb_tnear(node_id: u32, ray: Ray) -> f32 {
     // TODO: handle ray.direction == 0.
-    let t1_tmp = (aabb.min - ray.origin) / ray.direction;
-    let t2_tmp = (aabb.max - ray.origin) / ray.direction;
+    let t1_tmp = (bvh_nodes[node_id].aabb.min - ray.origin) / ray.direction;
+    let t2_tmp = (bvh_nodes[node_id].aabb.max - ray.origin) / ray.direction;
 
     let t1 = min(t1_tmp, t2_tmp);
     let t2 = max(t1_tmp, t2_tmp);
@@ -87,8 +96,8 @@ fn bvh_color(ray: Ray) -> vec4f {
     return vec4(0.);
 }
 
-fn stack_push(current_len: u32, node_id: u32) -> u32 {
-    stack[current_len] = node_id;
+fn stack_push(current_len: u32, node_id: u32, op: u32) -> u32 {
+    stack[current_len] = StackItem(node_id, op);
     return current_len + 1u;
 }
 
@@ -148,24 +157,84 @@ fn merge_intersections(ray: Ray, i1: Intersection, i2: Intersection) -> Intersec
     return i2;
 }
 
+fn aabb_intersects_other(left_id: u32, right_id: u32) -> bool {
+    // TODO
+    return false;
+}
+
 fn bvh_intersect(ray: Ray) -> Intersection {
     var stack_len: u32 = 1u;
     var intersection = Intersection();
 
-    stack[0] = bvh_meta.root;
+    let root_tnear = aabb_tnear(bvh_meta.root, ray);
+    if root_tnear == 0. {
+        return intersection;
+    }
+    stack[0] = StackItem(
+        bvh_meta.root,
+        FLAGS_EMPTY,
+    );
+
+    // Branching:
+    // super fast: if only one of them present, don't merge.
+    // - this can be done pre-recursion
+    // fast (aabs don't intersect):
+    // - check closest. If it hits, don't check the second.
+    // - ONLY IF IT DOESN'T HIT, check the second.
+    // slow (aabs intersect):
+    // - check both. Then merge the intersections.
+
     while stack_len > 0u {
-        let node_id = stack[stack_len - 1u];
+        let idx = stack_len - 1u;
         stack_len -= 1u;
-        let tnear = aabb_tnear(bvh_nodes[node_id].aabb, ray);
-        if tnear == 0. {
-            continue;
-        }
+        let node_id = stack[idx].node_id;
+        let op = stack[idx].flags;
+
         if bvh_nodes[node_id].is_leaf == 1u {
+            if intersection.is_hit && ((op & FLAG_IGNORE_IF_SET) == FLAG_IGNORE_IF_SET) {
+                continue;
+            }
             let i = sphere_ray_intersection(bvh_objects[bvh_nodes[node_id].id1], ray);
-            intersection = merge_intersections(ray, intersection, i);
+            if intersection.is_hit && ((op & FLAG_MERGE) == FLAG_MERGE) {
+                intersection = merge_intersections(ray, intersection, i);
+            } else {
+                intersection = i;
+            }
         } else {
-            stack_len = stack_push(stack_len, bvh_nodes[node_id].id2);
-            stack_len = stack_push(stack_len, bvh_nodes[node_id].id1);
+            var right = bvh_nodes[node_id].id2;
+            var left = bvh_nodes[node_id].id1;
+
+            let left_tnear = aabb_tnear(left, ray);
+            let right_tnear = aabb_tnear(right, ray);
+
+            // If both are crossing:
+            if left_tnear != 0. && right_tnear != 0. {
+                if !aabb_intersects_other(left, right) {
+                    // Encode "if the closest one hits, ignore the second"
+
+                    // Swap left and right
+                    if (right_tnear < left_tnear) {
+                        let tmp = left;
+                        left = right;
+                        right = tmp;
+                    }
+
+                    // Now left is closer, more important. So push right first.
+                    stack_len = stack_push(stack_len, right, op | FLAG_IGNORE_IF_SET);
+                    stack_len = stack_push(stack_len, left, op);
+                } else {
+                    stack_len = stack_push(stack_len, right, op | FLAG_MERGE);
+                    stack_len = stack_push(stack_len, left, op);
+                }
+            } else {
+                // Basic (super fast, only one pushed)
+                if left_tnear != 0. {
+                    stack_len = stack_push(stack_len, left, op);
+                }
+                if right_tnear != 0. {
+                    stack_len = stack_push(stack_len, right, op);
+                }
+            }
         }
     }
     return intersection;
