@@ -384,6 +384,7 @@ impl App {
 }
 
 #[derive(Clone, Copy, Default, zerocopy_derive::AsBytes)]
+// WGSL: align=16, sizeof=48, stride=48
 #[repr(C)]
 struct ComputePipelineUniforms {
     position: Vec3,
@@ -394,7 +395,7 @@ struct ComputePipelineUniforms {
 
     width: u32,
     height: u32,
-    _pad_2: [u8; 4],
+    _pad_struct: [u8; 4],
 }
 
 async fn main_wgpu(bvh: BVH) -> anyhow::Result<()> {
