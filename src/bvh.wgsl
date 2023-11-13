@@ -149,9 +149,6 @@ fn merge_intersections(ray: Ray, i1: Intersection, i2: Intersection) -> Intersec
 }
 
 fn bvh_intersect(ray: Ray) -> Intersection {
-    let root = bvh_meta.root;
-    let tnear = aabb_tnear(bvh_nodes[root].aabb, ray);
-
     var stack_len: u32 = 1u;
     var intersection = Intersection();
 
@@ -167,8 +164,8 @@ fn bvh_intersect(ray: Ray) -> Intersection {
             let i = sphere_ray_intersection(bvh_objects[bvh_nodes[node_id].id1], ray);
             intersection = merge_intersections(ray, intersection, i);
         } else {
-            stack_len = stack_push(stack_len, bvh_nodes[node_id].id1);
             stack_len = stack_push(stack_len, bvh_nodes[node_id].id2);
+            stack_len = stack_push(stack_len, bvh_nodes[node_id].id1);
         }
     }
     return intersection;
