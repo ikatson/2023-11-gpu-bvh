@@ -12,9 +12,9 @@ use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
     BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor, BufferUsages, ColorTargetState,
     ColorWrites, FragmentState, PipelineLayout, PipelineLayoutDescriptor, PrimitiveState,
-    RenderPassColorAttachment, RenderPassDescriptor, RenderPipelineDescriptor,
-    ShaderModuleDescriptor, TextureViewDescriptor, VertexAttribute, VertexBufferLayout,
-    VertexState,
+    RenderPassColorAttachment, RenderPassDescriptor, RenderPipelineDescriptor, SamplerDescriptor,
+    ShaderModuleDescriptor, TextureUsages, TextureViewDescriptor, VertexAttribute,
+    VertexBufferLayout, VertexState,
 };
 use winit::{
     event::{Event, WindowEvent},
@@ -176,43 +176,72 @@ impl App {
             self.output_height as usize,
         );
 
-        // device.create_texture_with_data(
-        //     queue,
-        //     &wgpu::TextureDescriptor {
-        //         label: None,
-        //         size: wgpu::Extent3d {
-        //             width: self.output_width,
-        //             height: self.output_height,
-        //             depth_or_array_layers: 1,
-        //         },
-        //         mip_level_count: 1,
-        //         sample_count: 1,
-        //         dimension: wgpu::TextureDimension::D2,
-        //         format: wgpu::TextureFormat::Bgra8Unorm,
-        //         usage: (),
-        //         view_formats: (),
-        //     },
-        //     data,
-        // );
-
-        let image_buf = device.create_buffer_init(&BufferInitDescriptor {
+        let image_texture = device.create_texture_with_data(
+            queue,
+            &wgpu::TextureDescriptor {
+                label: None,
+                size: wgpu::Extent3d {
+                    width: self.output_width,
+                    height: self.output_height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Bgra8Unorm,
+                usage: TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            },
+            image.pixels.as_bytes(),
+        );
+        let image_texture_sampler = device.create_sampler(&SamplerDescriptor {
             label: None,
-            contents: image.pixels.as_bytes(),
-            usage: BufferUsages::STORAGE,
+            address_mode_u: wgpu::AddressMode::Repeat,
+            address_mode_v: wgpu::AddressMode::Repeat,
+            address_mode_w: wgpu::AddressMode::Repeat,
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            lod_min_clamp: 0.,
+            lod_max_clamp: 32.,
+            compare: None,
+            anisotropy_clamp: 1,
+            border_color: None,
         });
+
+        // let image_buf = device.create_buffer_init(&BufferInitDescriptor {
+        //     label: None,
+        //     contents: image.pixels.as_bytes(),
+        //     usage: BufferUsages::STORAGE,
+        // });
         let bind_group = device.create_bind_group(&BindGroupDescriptor {
             label: None,
             layout: &self.render_pipeline_bgl,
             entries: &[
                 BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::Buffer(image_buf.as_entire_buffer_binding()),
+                    resource: wgpu::BindingResource::TextureView(&image_texture.create_view(
+                        &TextureViewDescriptor {
+                            label: None,
+                            format: None,
+                            dimension: None,
+                            aspect: wgpu::TextureAspect::All,
+                            base_mip_level: 0,
+                            mip_level_count: None,
+                            base_array_layer: 0,
+                            array_layer_count: None,
+                        },
+                    )),
                 },
                 BindGroupEntry {
                     binding: 1,
                     resource: wgpu::BindingResource::Buffer(
                         self.screen_size_uniform.as_entire_buffer_binding(),
                     ),
+                },
+                BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&image_texture_sampler),
                 },
             ],
         });
@@ -294,8 +323,8 @@ async fn main_wgpu(bvh: BVH) -> anyhow::Result<()> {
         &wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: capabilities.formats[0],
-            width: WIDTH as u32,
-            height: HEIGHT as u32,
+            width: WIDTH,
+            height: HEIGHT,
             present_mode: wgpu::PresentMode::Fifo,
             alpha_mode: capabilities.alpha_modes[0],
             view_formats: vec![],
@@ -314,15 +343,10 @@ async fn main_wgpu(bvh: BVH) -> anyhow::Result<()> {
             wgpu::BindGroupLayoutEntry {
                 binding: 0,
                 visibility: wgpu::ShaderStages::FRAGMENT,
-                // ty: wgpu::BindingType::Texture {
-                //     sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                //     view_dimension: wgpu::TextureViewDimension::D2,
-                //     multisampled: false,
-                // },
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Storage { read_only: true },
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
                 },
                 count: None,
             },
@@ -340,6 +364,12 @@ async fn main_wgpu(bvh: BVH) -> anyhow::Result<()> {
                     has_dynamic_offset: false,
                     min_binding_size: None,
                 },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 2,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
                 count: None,
             },
         ],
@@ -402,10 +432,10 @@ async fn main_wgpu(bvh: BVH) -> anyhow::Result<()> {
         multiview: None,
     });
     let quad: [Vec3; 4] = [
-        Vec3::new(-1., 1., 0.5),
-        Vec3::new(-1., -1., 0.5),
-        Vec3::new(1., 1., 0.5),
-        Vec3::new(1., -1., 0.5),
+        Vec3::new(-1., 1., 0.),
+        Vec3::new(-1., -1., 0.),
+        Vec3::new(1., 1., 0.),
+        Vec3::new(1., -1., 0.),
     ];
     dbg!(core::mem::size_of_val(&quad));
     dbg!(core::mem::size_of::<Vec3>());
