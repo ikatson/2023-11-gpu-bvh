@@ -598,8 +598,8 @@ mod bvh {
                                 // pick the earlier intersection
                                 //
                                 // not great algo, but whatever
-                                let lmag = (l.0.coord - ray.origin).magnitude();
-                                let rmag = (r.0.coord - ray.origin).magnitude();
+                                let lmag = (l.0.coord - ray.origin).squared_magnitude();
+                                let rmag = (r.0.coord - ray.origin).squared_magnitude();
                                 if lmag < rmag {
                                     Some(l)
                                 } else {
@@ -634,6 +634,7 @@ mod bvh {
                     .unwrap()
             }
 
+            #[derive(Debug)]
             enum Axis {
                 X,
                 Y,
