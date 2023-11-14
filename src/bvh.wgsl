@@ -171,12 +171,12 @@ fn bvh_intersect(ray: Ray) -> Intersection {
     var stack_len: u32 = 1u;
     var intersection = Intersection();
 
-    let root_tnear = aabb_tnear(0, ray);
+    let root_tnear = aabb_tnear(0u, ray);
     if root_tnear == 0. {
         return intersection;
     }
     stack[0] = StackItem(
-        0,
+        0u,
         FLAGS_EMPTY,
     );
 
