@@ -737,7 +737,7 @@ fn main() {
         let mut shapes = Vec::with_capacity(SPHERES);
         for _ in 0..SPHERES {
             let r = |scale: f32, offset: f32| (rand::random::<f32>() + offset) * scale;
-            let center = Vec3::new(r(40., -0.5), r(0.1, -0.5), r(40., -0.5));
+            let center = Vec3::new(r(40., -0.5), r(1., -0.5), r(40., -0.5));
             shapes.push(Shape::Sphere(Sphere::new(center, r(0.1, 0.05))));
         }
         shapes

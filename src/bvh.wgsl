@@ -92,23 +92,35 @@ fn aabb_tnear(node_id: u32, ray: Ray) -> f32 {
 }
 
 fn get_color(ray: Ray, i: Intersection) -> vec4f {
-    // let light_direction = vec3f(-1., 1., -1.);
-    let light_position = vec3(0., 10., 0.);
-    let light_direction = -normalize(light_position);
     let r = (i.index & 1u) == 1u;
     let g = (i.index & 2u) == 2u;
     let b = (i.index & 4u) == 4u;
     let base = vec3f(vec3(r, g, b)) * 0.9 + 0.1;
+
+    // Point light
+    let light_position = vec3(0., 10., 0.);
+    let light_intensity = 128.;
     let ambient = 0.1;
-    let lambert_intensity = max(dot(light_direction, i.normal), 0.);
-    let lambert = base * (ambient + (lambert_intensity * (1. - ambient)));
-    return vec4(lambert, 1.);
+    let distance = i.coord - light_position;
+    let lambert_point_light_intensity = max(dot(normalize(distance), i.normal), 0.) / dot(distance, distance) * light_intensity;
+
+    let total_lighting = lambert_point_light_intensity;
+    let color = base * (ambient + total_lighting);
+    return vec4(color, 1.);
 }
 
 fn bvh_color(ray: Ray) -> vec4f {
     let i = bvh_intersect(ray);
     if i.is_hit {
-        return get_color(ray, i);
+        var color = get_color(ray, i);
+        // Relfectivity!
+        //
+        // let new_ray = Ray(i.coord, reflect(ray.direction, i.normal));
+        // let new_hit = bvh_intersect(new_ray);
+        // if new_hit.is_hit {
+        //     color += get_color(new_ray, new_hit);
+        // }
+        return color;
     }
     return vec4(0.);
 }
