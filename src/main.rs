@@ -411,12 +411,6 @@ impl Renderer {
                 },
                 BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::Buffer(
-                        self.screen_size_uniform.as_entire_buffer_binding(),
-                    ),
-                },
-                BindGroupEntry {
-                    binding: 2,
                     resource: wgpu::BindingResource::Sampler(&image_texture_sampler),
                 },
             ],
@@ -539,24 +533,8 @@ async fn main_wgpu(
                 },
                 count: None,
             },
-            // Uniforms (screen size)
             wgpu::BindGroupLayoutEntry {
                 binding: 1,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                // ty: wgpu::BindingType::Texture {
-                //     sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                //     view_dimension: wgpu::TextureViewDimension::D2,
-                //     multisampled: false,
-                // },
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: 2,
                 visibility: wgpu::ShaderStages::FRAGMENT,
                 ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
                 count: None,
@@ -581,7 +559,6 @@ async fn main_wgpu(
 
     let render_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
         label: None,
-        // TBDs
         bind_group_layouts: &[&render_pipeline_bgl],
         push_constant_ranges: &[],
     });
@@ -601,7 +578,6 @@ async fn main_wgpu(
                     shader_location: 0,
                 }],
             }],
-            //            buffers: &[],
         },
         primitive: PrimitiveState {
             topology: wgpu::PrimitiveTopology::TriangleStrip,
