@@ -5,7 +5,10 @@ use std::{
     fs::File,
     io::BufWriter,
     path::Path,
-    sync::atomic::{AtomicU8, Ordering},
+    sync::{
+        atomic::{AtomicU8, Ordering},
+        Mutex,
+    },
     time::{Duration, Instant},
 };
 use zerocopy::AsBytes;
@@ -81,7 +84,7 @@ impl OrthoCamera {
     }
 }
 
-#[derive(zerocopy_derive::AsBytes, Clone, Copy, Default)]
+#[derive(Debug, zerocopy_derive::AsBytes, Clone, Copy, Default)]
 #[repr(C)]
 struct PerspectiveCamera {
     position: Vec3,
@@ -206,7 +209,8 @@ impl AppState {
         dt
     }
 
-    fn update(&mut self, dt: &Duration) {
+    fn update(&mut self) {
+        let dt = self.dt();
         let speed = 10.;
         let rotation_speed = 1.;
         let dt_secs = dt.as_secs_f32();
@@ -323,6 +327,7 @@ impl Renderer {
         queue: &wgpu::Queue,
         camera: &PerspectiveCamera,
     ) -> anyhow::Result<()> {
+        // Render on CPU.
         // let image = render_bvh_perspective(
         //     &self.bvh,
         //     &self.camera,
@@ -331,29 +336,6 @@ impl Renderer {
         // );
 
         self.render_to_compute_texture(device, queue, camera);
-        let mut encoder =
-            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-        encoder.copy_texture_to_texture(
-            ImageCopyTexture {
-                texture: &self.compute_output_texture,
-                mip_level: 0,
-                origin: Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            ImageCopyTexture {
-                texture: &texture.texture,
-                mip_level: 0,
-                origin: Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            Extent3d {
-                width: self.output_width,
-                height: self.output_height,
-                depth_or_array_layers: 1,
-            },
-        );
-        queue.submit(Some(encoder.finish()));
-        return Ok(());
 
         let image_texture_sampler = device.create_sampler(&SamplerDescriptor {
             label: None,
@@ -460,8 +442,6 @@ async fn main_wgpu(
     camera: &PerspectiveCamera,
 ) -> anyhow::Result<()> {
     let el = EventLoop::new()?;
-    el.set_control_flow(winit::event_loop::ControlFlow::Poll);
-
     let window = WindowBuilder::new()
         .with_inner_size(winit::dpi::PhysicalSize::new(width, height))
         .build(&el)?;
@@ -675,11 +655,11 @@ async fn main_wgpu(
         entry_point: "render_through_bvh",
     });
 
-    let mut app = AppState {
+    let app = Mutex::new(AppState {
         camera: *camera,
         pressed_keys: Default::default(),
         time: Instant::now(),
-    };
+    });
 
     let renderer = Renderer {
         gpu_bvh,
@@ -699,20 +679,27 @@ async fn main_wgpu(
         camera: PerspectiveCamera,
     }
 
-    let (tx, rx) = std::sync::mpsc::channel::<Payload>();
-    std::thread::scope(move |s| {
-        s.spawn(move || loop {
-            let payload = rx.recv().unwrap();
+    std::thread::scope(|s| {
+        // "Game logic" thread
+        s.spawn(|| loop {
+            {
+                app.lock().unwrap().update();
+            }
+            std::thread::sleep(Duration::from_millis(16));
+        });
+
+        // Render thread. It will spawn at most at 60 fps by itself.
+        s.spawn(|| loop {
+            let camera = { app.lock().unwrap().camera };
             timeit!("render", {
                 let txt = surface.get_current_texture().unwrap();
-                renderer
-                    .render(&txt, &device, &queue, &payload.camera)
-                    .unwrap();
+                renderer.render(&txt, &device, &queue, &camera).unwrap();
                 txt.present();
             });
         });
 
-        el.run(move |event, _target| {
+        // Event loop.
+        el.run(|event, target| {
             // Have the closure take ownership of the resources.
             // `event_loop.run` never returns, therefore we must do this to ensure
             // the resources are properly cleaned up.
@@ -722,11 +709,9 @@ async fn main_wgpu(
                     window_id: _,
                     event,
                 } => match event {
-                    WindowEvent::KeyboardInput {
-                        device_id: _,
-                        event,
-                        is_synthetic: _,
-                    } => app.on_keyboard_event(event),
+                    WindowEvent::KeyboardInput { event, .. } => {
+                        app.lock().unwrap().on_keyboard_event(event);
+                    }
                     // WindowEvent::ModifiersChanged(_) => todo!(),
                     // WindowEvent::CursorMoved { device_id, position } => todo!(),
                     // WindowEvent::CursorEntered { device_id } => todo!(),
@@ -738,16 +723,19 @@ async fn main_wgpu(
                     // WindowEvent::TouchpadRotate { device_id, delta, phase } => todo!(),
                     // WindowEvent::TouchpadPressure { device_id, pressure, stage } => todo!(),
                     // WindowEvent::Touch(_) => todo!(),
-                    WindowEvent::RedrawRequested => {
-                        let dt = app.dt();
-                        app.update(&dt);
-                        tx.send(Payload { camera: app.camera }).unwrap();
-                    }
+                    // WindowEvent::RedrawRequested => {
+                    //     tx.send(Payload { camera: app.camera }).unwrap();
+                    // }
                     _we => {
                         // dbg!(we);
                     }
                 },
-                Event::NewEvents(StartCause::Poll) => window.request_redraw(),
+                // Event::NewEvents(StartCause::Poll) => {
+                //     app.update();
+                //     if !app.pressed_keys.is_empty() {
+                //         window.request_redraw()
+                //     }
+                // }
                 _e => {}
             }
         })
