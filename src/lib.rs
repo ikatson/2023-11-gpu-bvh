@@ -32,6 +32,10 @@ impl From<f32> for Vec3 {
 }
 
 impl Vec3 {
+    pub const fn new(x: f32, y: f32, z: f32) -> Vec3 {
+        Self { x, y, z }
+    }
+
     pub fn normalize(&self) -> Self {
         let len = self.magnitude();
         self.scalar_div(len)
@@ -77,15 +81,6 @@ impl Vec3 {
 
     pub fn abs(&self) -> Self {
         Self::new(self.x.abs(), self.y.abs(), self.z.abs())
-    }
-
-    pub fn new(x: f32, y: f32, z: f32) -> Vec3 {
-        Self {
-            x,
-            y,
-            z,
-            ..Default::default()
-        }
     }
 
     pub fn rotate_around_axis(&self, axis: &Vec3, angle_rad: f32) -> Vec3 {
@@ -203,11 +198,7 @@ pub struct Sphere {
 }
 impl Sphere {
     pub fn new(center: Vec3, radius: f32) -> Sphere {
-        Sphere {
-            center,
-            radius,
-            ..Default::default()
-        }
+        Sphere { center, radius }
     }
     fn intersection(&self, ray: &Ray) -> Option<Intersection> {
         let sphere = *self;
@@ -768,7 +759,7 @@ mod bvh {
     // WGSL:
     #[repr(C)]
     struct GPUBVHNode {
-        aabb: GPUAABB, // align=16, offset=0, size=32
+        aabb: GpuAabb, // align=16, offset=0, size=32
 
         flags: u32,
 
@@ -782,7 +773,7 @@ mod bvh {
     #[derive(Debug, Default, zerocopy_derive::AsBytes)]
     // WGSL: align=16, size=32
     #[repr(C)]
-    struct GPUAABB {
+    struct GpuAabb {
         min: Vec3,
         _pad: [u8; 4],
         max: Vec3,
@@ -816,7 +807,7 @@ mod bvh {
                 .iter()
                 .map(|n| {
                     let mut result = GPUBVHNode {
-                        aabb: GPUAABB {
+                        aabb: GpuAabb {
                             min: n.aabb.min,
                             max: n.aabb.max,
                             ..Default::default()
