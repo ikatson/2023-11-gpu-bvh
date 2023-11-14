@@ -1,4 +1,5 @@
 use anyhow::Context;
+use rand::distributions::weighted;
 use std::{
     borrow::Cow,
     collections::HashSet,
@@ -23,7 +24,7 @@ use wgpu::{
     TextureUsages, TextureViewDescriptor, VertexAttribute, VertexBufferLayout, VertexState,
 };
 use winit::{
-    event::{Event, StartCause, WindowEvent},
+    event::{Event, MouseScrollDelta, StartCause, WindowEvent},
     event_loop::EventLoop,
     keyboard::{KeyCode, PhysicalKey::Code},
     window::WindowBuilder,
@@ -162,10 +163,18 @@ macro_rules! timeit {
     }};
 }
 
+enum OtherEvent {
+    MouseScroll(MouseScrollDelta),
+    TouchPadMagnify(f64),
+}
+
 struct AppState {
     camera: PerspectiveCamera,
     pressed_keys: HashSet<winit::keyboard::PhysicalKey>,
+    other_events: Vec<OtherEvent>,
     time: Instant,
+    screen_width: u32,
+    screen_height: u32,
 }
 
 struct Renderer {
@@ -207,6 +216,14 @@ impl AppState {
         let dt = now - self.time;
         self.time = now;
         dt
+    }
+
+    fn on_mouse_scroll(&mut self, ev: MouseScrollDelta) {
+        self.other_events.push(OtherEvent::MouseScroll(ev))
+    }
+
+    fn on_touchpad_magnify(&mut self, delta: f64) {
+        self.other_events.push(OtherEvent::TouchPadMagnify(delta));
     }
 
     fn update(&mut self) {
@@ -255,6 +272,20 @@ impl AppState {
                         .rotate_around_axis(&up, rotation_speed * dt_secs)
                 }
                 _ => {}
+            }
+        }
+        for event in self.other_events.drain(..) {
+            match event {
+                OtherEvent::MouseScroll(ev) => match ev {
+                    MouseScrollDelta::PixelDelta(pos) => {
+                        movement = movement + left * (pos.x as f32) / (self.screen_width as f32);
+                        movement = movement + up * (pos.y as f32) / (self.screen_height as f32);
+                    }
+                    _ev => {}
+                },
+                OtherEvent::TouchPadMagnify(delta) => {
+                    self.camera.fov -= (delta * 10.) as f32;
+                }
             }
         }
         self.camera.position = self.camera.position + movement;
@@ -659,6 +690,9 @@ async fn main_wgpu(
         camera: *camera,
         pressed_keys: Default::default(),
         time: Instant::now(),
+        screen_height: height,
+        screen_width: width,
+        other_events: Default::default(),
     });
 
     let renderer = Renderer {
@@ -716,13 +750,26 @@ async fn main_wgpu(
                     // WindowEvent::CursorMoved { device_id, position } => todo!(),
                     // WindowEvent::CursorEntered { device_id } => todo!(),
                     // WindowEvent::CursorLeft { device_id } => todo!(),
-                    // WindowEvent::MouseWheel { device_id, delta, phase } => todo!(),
+                    WindowEvent::MouseWheel {
+                        device_id,
+                        delta,
+                        phase,
+                    } => {
+                        app.lock().unwrap().on_mouse_scroll(delta);
+                    }
                     // WindowEvent::MouseInput { device_id, state, button } => todo!(),
-                    // WindowEvent::TouchpadMagnify { device_id, delta, phase } => todo!(),
+                    WindowEvent::TouchpadMagnify {
+                        device_id,
+                        delta,
+                        phase,
+                    } => {
+                        app.lock().unwrap().on_touchpad_magnify(delta);
+                    }
                     // WindowEvent::SmartMagnify { device_id } => todo!(),
                     // WindowEvent::TouchpadRotate { device_id, delta, phase } => todo!(),
-                    // WindowEvent::TouchpadPressure { device_id, pressure, stage } => todo!(),
-                    // WindowEvent::Touch(_) => todo!(),
+                    WindowEvent::Touch(t) => {
+                        dbg!(t);
+                    }
                     // WindowEvent::RedrawRequested => {
                     //     tx.send(Payload { camera: app.camera }).unwrap();
                     // }
