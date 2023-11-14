@@ -26,10 +26,9 @@ struct BVHMeta {
 }
 
 struct ComputePassUniforms {
-    // camera
     position: vec3<f32>,
-    direction: vec3<f32>,
     fov: f32,
+    direction: vec3<f32>,
     aspect: f32,
 
     width: u32,

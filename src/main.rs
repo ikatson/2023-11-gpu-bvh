@@ -606,14 +606,13 @@ impl Renderer {
 #[repr(C)]
 struct ComputePipelineUniforms {
     position: Vec3,
-    _pad: [u8; 4],
-    direction: Vec3,
     fov: f32,
+    direction: Vec3,
     aspect: f32,
 
     width: u32,
     height: u32,
-    _pad_struct: [u8; 4],
+    _pad_struct: [u8; 8],
 }
 
 async fn main_wgpu(
@@ -714,9 +713,6 @@ async fn main_wgpu(
                         phase: _,
                     } => {
                         app.lock().unwrap().on_touchpad_magnify(delta);
-                    }
-                    WindowEvent::Touch(t) => {
-                        dbg!(t);
                     }
                     _we => {}
                 },
