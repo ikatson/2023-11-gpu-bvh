@@ -71,7 +71,7 @@ struct StackItem {
     flags: u32,
 }
 
-const MAX_ITER: u32 = 32u;
+const MAX_ITER: u32 = 128u;
 var<private> stack: array<StackItem, 8>;
 
 fn aabb_tnear(node_id: u32, ray: Ray) -> f32 {
