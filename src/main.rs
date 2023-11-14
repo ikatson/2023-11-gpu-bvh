@@ -18,10 +18,10 @@ use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
     BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry,
     BufferUsages, CommandEncoderDescriptor, ComputePassDescriptor, ComputePipelineDescriptor,
-    Extent3d, FragmentState, PipelineLayoutDescriptor,
-    PrimitiveState, RenderPassColorAttachment, RenderPassDescriptor, RenderPipelineDescriptor,
-    SamplerDescriptor, ShaderModuleDescriptor, ShaderStages, TextureDescriptor,
-    TextureUsages, TextureViewDescriptor, VertexAttribute, VertexBufferLayout, VertexState,
+    Extent3d, FragmentState, PipelineLayoutDescriptor, PrimitiveState, RenderPassColorAttachment,
+    RenderPassDescriptor, RenderPipelineDescriptor, SamplerDescriptor, ShaderModuleDescriptor,
+    ShaderStages, TextureDescriptor, TextureUsages, TextureViewDescriptor, VertexAttribute,
+    VertexBufferLayout, VertexState,
 };
 use winit::{
     event::{Event, MouseScrollDelta, WindowEvent},
@@ -67,24 +67,6 @@ impl Image {
             }
         }
         Ok(())
-    }
-}
-
-struct OrthoCamera {
-    position: Vec3,
-    direction: Vec3,
-    width: f32,
-    height: f32,
-}
-
-impl OrthoCamera {
-    fn new_from_pos_and_target(position: Vec3, target: Vec3, width: f32, height: f32) -> Self {
-        Self {
-            position,
-            direction: (target - position).normalize(),
-            width,
-            height,
-        }
     }
 }
 
@@ -374,11 +356,14 @@ impl Renderer {
         camera: &PerspectiveCamera,
     ) -> anyhow::Result<()> {
         // Render on CPU.
-        // let image = render_bvh_perspective(
-        //     &self.bvh,
-        //     &self.camera,
-        //     self.output_width as usize,
-        //     self.output_height as usize,
+        // let _image = timeit!(
+        //     "render on CPU",
+        //     render_bvh_perspective(
+        //         &self.bvh,
+        //         camera,
+        //         self.output_width as usize,
+        //         self.output_height as usize,
+        //     )
         // );
 
         self.render_to_compute_texture(device, queue, camera);
@@ -524,7 +509,7 @@ async fn main_wgpu(
             format: capabilities.formats[0],
             width,
             height,
-            present_mode: wgpu::PresentMode::Fifo,
+            present_mode: wgpu::PresentMode::AutoVsync,
             alpha_mode: capabilities.alpha_modes[0],
             view_formats: vec![],
         },
