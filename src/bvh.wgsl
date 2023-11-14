@@ -33,6 +33,10 @@ struct ComputePassUniforms {
 
     width: u32,
     height: u32,
+
+    // This works without it, but putting here just in case.
+    _pad_0: u32,
+    _pad_1: u32,
 }
 
 struct Ray {
