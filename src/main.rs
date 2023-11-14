@@ -14,10 +14,10 @@ use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
     BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry,
     BufferUsages, CommandEncoderDescriptor, ComputePassDescriptor, ComputePipelineDescriptor,
-    Extent3d, FragmentState, PipelineLayoutDescriptor, PrimitiveState, RenderPassColorAttachment,
-    RenderPassDescriptor, RenderPipelineDescriptor, SamplerDescriptor, ShaderModuleDescriptor,
-    ShaderStages, TextureDescriptor, TextureUsages, TextureViewDescriptor, VertexAttribute,
-    VertexBufferLayout, VertexState,
+    Extent3d, FragmentState, ImageCopyTexture, Origin2d, Origin3d, PipelineLayoutDescriptor,
+    PrimitiveState, RenderPassColorAttachment, RenderPassDescriptor, RenderPipelineDescriptor,
+    SamplerDescriptor, ShaderModuleDescriptor, ShaderStages, SurfaceTexture, TextureDescriptor,
+    TextureUsages, TextureViewDescriptor, VertexAttribute, VertexBufferLayout, VertexState,
 };
 use winit::{
     event::{Event, StartCause, WindowEvent},
@@ -159,24 +159,29 @@ macro_rules! timeit {
     }};
 }
 
-struct App {
+struct AppState {
+    camera: PerspectiveCamera,
+    pressed_keys: HashSet<winit::keyboard::PhysicalKey>,
+    time: Instant,
+}
+
+struct Renderer {
     bvh: BVH,
     gpu_bvh: GPUBVH,
-    camera: PerspectiveCamera,
+
     render_pipeline: wgpu::RenderPipeline,
     render_pipeline_bgl: wgpu::BindGroupLayout,
     quad_buffer: wgpu::Buffer,
     screen_size_uniform: wgpu::Buffer,
     output_width: u32,
     output_height: u32,
-    pressed_keys: HashSet<winit::keyboard::PhysicalKey>,
-    time: Instant,
+
     compute_pipeline: wgpu::ComputePipeline,
     compute_pipeline_render_bgl: wgpu::BindGroupLayout,
     compute_output_texture: wgpu::Texture,
 }
 
-impl App {
+impl AppState {
     fn on_keyboard_event(&mut self, event: winit::event::KeyEvent) {
         let key = match event.physical_key {
             Code(KeyCode::KeyW) | Code(KeyCode::KeyA) | Code(KeyCode::KeyS)
@@ -251,13 +256,20 @@ impl App {
         self.camera.position = self.camera.position + movement;
         self.camera.direction = new_direction;
     }
+}
 
-    fn render_to_compute_texture(&self, device: &wgpu::Device, queue: &wgpu::Queue) {
+impl Renderer {
+    fn render_to_compute_texture(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        camera: &PerspectiveCamera,
+    ) {
         let u = ComputePipelineUniforms {
-            position: self.camera.position,
-            direction: self.camera.direction,
-            fov: self.camera.fov,
-            aspect: self.camera.aspect,
+            position: camera.position,
+            direction: camera.direction,
+            fov: camera.fov,
+            aspect: camera.aspect,
             width: self.output_width,
             height: self.output_height,
             ..Default::default()
@@ -309,6 +321,7 @@ impl App {
         texture: &wgpu::SurfaceTexture,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
+        camera: &PerspectiveCamera,
     ) -> anyhow::Result<()> {
         // let image = render_bvh_perspective(
         //     &self.bvh,
@@ -317,7 +330,30 @@ impl App {
         //     self.output_height as usize,
         // );
 
-        self.render_to_compute_texture(device, queue);
+        self.render_to_compute_texture(device, queue, camera);
+        let mut encoder =
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        encoder.copy_texture_to_texture(
+            ImageCopyTexture {
+                texture: &self.compute_output_texture,
+                mip_level: 0,
+                origin: Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            ImageCopyTexture {
+                texture: &texture.texture,
+                mip_level: 0,
+                origin: Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            Extent3d {
+                width: self.output_width,
+                height: self.output_height,
+                depth_or_array_layers: 1,
+            },
+        );
+        queue.submit(Some(encoder.finish()));
+        return Ok(());
 
         let image_texture_sampler = device.create_sampler(&SamplerDescriptor {
             label: None,
@@ -454,6 +490,7 @@ async fn main_wgpu(
         .context("error requesting device")?;
 
     let capabilities = surface.get_capabilities(&adapter);
+    dbg!(&capabilities);
     surface.configure(
         &device,
         &wgpu::SurfaceConfiguration {
@@ -626,23 +663,6 @@ async fn main_wgpu(
         ],
     });
 
-    // let compute_pipeline_render_bind_group = device.create_bind_group(&BindGroupDescriptor {
-    //     label: None,
-    //     layout: &compute_pipeline_render_bgl,
-    //     entries: &[
-    //         BindGroupEntry {
-    //             binding: 0,
-    //             resource: wgpu::BindingResource::TextureView(
-    //                 &output_texture.create_view(&TextureViewDescriptor::default()),
-    //             ),
-    //         },
-    //         BindGroupEntry {
-    //             binding: 1,
-    //             resource: screen_size_uniform.as_entire_binding(),
-    //         },
-    //     ],
-    // });
-
     let compute_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
         label: None,
         bind_group_layouts: &[&gpu_bvh.bgl, &compute_pipeline_render_bgl],
@@ -655,86 +675,84 @@ async fn main_wgpu(
         entry_point: "render_through_bvh",
     });
 
-    let mut app = App {
+    let mut app = AppState {
+        camera: *camera,
+        pressed_keys: Default::default(),
+        time: Instant::now(),
+    };
+
+    let renderer = Renderer {
         gpu_bvh,
         bvh,
-        camera: *camera,
         render_pipeline,
         render_pipeline_bgl,
         quad_buffer,
         screen_size_uniform,
         output_width: width,
         output_height: height,
-        pressed_keys: Default::default(),
-        time: Instant::now(),
         compute_pipeline,
         compute_pipeline_render_bgl,
         compute_output_texture: output_texture,
     };
 
-    el.run(move |event, _target| {
-        // Have the closure take ownership of the resources.
-        // `event_loop.run` never returns, therefore we must do this to ensure
-        // the resources are properly cleaned up.
-        let _ = (&instance, &adapter);
-        match event {
-            Event::WindowEvent { window_id: _, event } => match event {
-                // WindowEvent::ActivationTokenDone { serial, token } => todo!(),
-                // WindowEvent::Resized(_) => todo!(),
-                // WindowEvent::Moved(_) => todo!(),
-                // WindowEvent::CloseRequested => todo!(),
-                // WindowEvent::Destroyed => todo!(),
-                // WindowEvent::DroppedFile(_) => todo!(),
-                // WindowEvent::HoveredFile(_) => todo!(),
-                // WindowEvent::HoveredFileCancelled => todo!(),
-                // WindowEvent::Focused(_) => todo!(),
-                WindowEvent::KeyboardInput { device_id: _, event, is_synthetic: _ } => {
-                    app.on_keyboard_event(event)
-                },
-                // WindowEvent::ModifiersChanged(_) => todo!(),
-                // WindowEvent::Ime(_) => todo!(),
-                // WindowEvent::CursorMoved { device_id, position } => todo!(),
-                // WindowEvent::CursorEntered { device_id } => todo!(),
-                // WindowEvent::CursorLeft { device_id } => todo!(),
-                // WindowEvent::MouseWheel { device_id, delta, phase } => todo!(),
-                // WindowEvent::MouseInput { device_id, state, button } => todo!(),
-                // WindowEvent::TouchpadMagnify { device_id, delta, phase } => todo!(),
-                // WindowEvent::SmartMagnify { device_id } => todo!(),
-                // WindowEvent::TouchpadRotate { device_id, delta, phase } => todo!(),
-                // WindowEvent::TouchpadPressure { device_id, pressure, stage } => todo!(),
-                // WindowEvent::AxisMotion { device_id, axis, value } => todo!(),
-                // WindowEvent::Touch(_) => todo!(),
-                // WindowEvent::ScaleFactorChanged { scale_factor, inner_size_writer } => todo!(),
-                // WindowEvent::ThemeChanged(_) => todo!(),
-                // WindowEvent::Occluded(_) => todo!(),
-                WindowEvent::RedrawRequested => {
-                    timeit!("redraw", {
+    struct Payload {
+        camera: PerspectiveCamera,
+    }
+
+    let (tx, rx) = std::sync::mpsc::channel::<Payload>();
+    std::thread::scope(move |s| {
+        s.spawn(move || loop {
+            let payload = rx.recv().unwrap();
+            timeit!("render", {
+                let txt = surface.get_current_texture().unwrap();
+                renderer
+                    .render(&txt, &device, &queue, &payload.camera)
+                    .unwrap();
+                txt.present();
+            });
+        });
+
+        el.run(move |event, _target| {
+            // Have the closure take ownership of the resources.
+            // `event_loop.run` never returns, therefore we must do this to ensure
+            // the resources are properly cleaned up.
+            let _ = (&instance, &adapter);
+            match event {
+                Event::WindowEvent {
+                    window_id: _,
+                    event,
+                } => match event {
+                    WindowEvent::KeyboardInput {
+                        device_id: _,
+                        event,
+                        is_synthetic: _,
+                    } => app.on_keyboard_event(event),
+                    // WindowEvent::ModifiersChanged(_) => todo!(),
+                    // WindowEvent::CursorMoved { device_id, position } => todo!(),
+                    // WindowEvent::CursorEntered { device_id } => todo!(),
+                    // WindowEvent::CursorLeft { device_id } => todo!(),
+                    // WindowEvent::MouseWheel { device_id, delta, phase } => todo!(),
+                    // WindowEvent::MouseInput { device_id, state, button } => todo!(),
+                    // WindowEvent::TouchpadMagnify { device_id, delta, phase } => todo!(),
+                    // WindowEvent::SmartMagnify { device_id } => todo!(),
+                    // WindowEvent::TouchpadRotate { device_id, delta, phase } => todo!(),
+                    // WindowEvent::TouchpadPressure { device_id, pressure, stage } => todo!(),
+                    // WindowEvent::Touch(_) => todo!(),
+                    WindowEvent::RedrawRequested => {
                         let dt = app.dt();
                         app.update(&dt);
-                        let txt = surface.get_current_texture().unwrap();
-                        app.render(&txt, &device, &queue).unwrap();
-                        txt.present();
-                    });
-                }
-                _we => {
-                    // dbg!(we);
-                }
-            },
-            Event::NewEvents(StartCause::Poll) => window.request_redraw(),
-            _e => {
-//                dbg!(e);
+                        tx.send(Payload { camera: app.camera }).unwrap();
+                    }
+                    _we => {
+                        // dbg!(we);
+                    }
+                },
+                Event::NewEvents(StartCause::Poll) => window.request_redraw(),
+                _e => {}
             }
-            // Event::NewEvents(_) => todo!(),
-            // Event::DeviceEvent { device_id, event } => todo!(),
-            // Event::UserEvent(_) => todo!(),
-            // Event::Suspended => todo!(),
-            // Event::Resumed => todo!(),
-            // Event::AboutToWait => todo!(),
-            // Event::LoopExiting => todo!(),
-            // Event::MemoryWarning => todo!(),
-        }
-    })
-    .context("error running event loop")?;
+        })
+        .expect("error running event loop");
+    });
 
     Ok(())
 }
