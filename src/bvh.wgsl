@@ -48,7 +48,6 @@ struct Intersection {
     coord: vec3<f32>,
     normal: vec3<f32>,
     is_hit: bool,
-    depth: u32
 }
 
 @group(0) @binding(0)
@@ -96,7 +95,7 @@ fn aabb_tnear(node_id: u32, ray: Ray) -> f32 {
 fn bvh_color(ray: Ray) -> vec4f {
     let i = bvh_intersect(ray);
     if i.is_hit {
-        return vec4(abs(i.normal) * f32(i.depth) / 16., 1.);
+        return vec4(abs(i.normal), 1.);
     }
     return vec4(0.);
 }
@@ -106,7 +105,7 @@ fn stack_push(current_len: u32, node_id: u32, op: u32) -> u32 {
     return current_len + 1u;
 }
 
-fn sphere_ray_intersection(sphere: Sphere, ray: Ray, depth: u32) -> Intersection {
+fn sphere_ray_intersection(sphere: Sphere, ray: Ray) -> Intersection {
     let oc = vec3(
         ray.origin.x - sphere.center.x,
         ray.origin.y - sphere.center.y,
@@ -144,7 +143,7 @@ fn sphere_ray_intersection(sphere: Sphere, ray: Ray, depth: u32) -> Intersection
         ray.origin.z + t * ray.direction.z,
     );
     let normal = normalize(coord - sphere.center);
-    return Intersection(coord, normal, true, depth);
+    return Intersection(coord, normal, true);
 }
 
 fn merge_intersections(ray: Ray, i1: Intersection, i2: Intersection) -> Intersection {
@@ -205,7 +204,7 @@ fn bvh_intersect(ray: Ray) -> Intersection {
             if intersection.is_hit && ((op & FLAG_IGNORE_IF_SET) == FLAG_IGNORE_IF_SET) {
                 continue;
             }
-            let i = sphere_ray_intersection(bvh_objects[bvh_nodes[node_id].id1], ray, iterations);
+            let i = sphere_ray_intersection(bvh_objects[bvh_nodes[node_id].id1], ray);
             if intersection.is_hit && ((op & FLAG_MERGE) == FLAG_MERGE) {
                 intersection = merge_intersections(ray, intersection, i);
             } else {
