@@ -76,10 +76,14 @@ fn aabb_tnear(node_id: u32, ray: Ray) -> f32 {
     let t1 = min(t1_tmp, t2_tmp);
     let t2 = max(t1_tmp, t2_tmp);
 
+    // The time it takes the ray to enter the box.
     let tnear = max(max(t1.x, t1.y), t1.z);
+    // The time it takes the ray to exit the bos.
     let tfar = min(min(t2.x, t2.y), t2.z);
 
-    if tnear < tfar {
+    // tnear < tfar means the ray enters and exits the box.
+    // tfar > 0 is to ignore boxes that are behind the ray looking from origin.
+    if tnear < tfar && tfar > 0. {
         return tnear;
     } else {
         return 0.;
