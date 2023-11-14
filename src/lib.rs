@@ -462,6 +462,7 @@ mod bvh {
         kind: NodeKind,
     }
 
+    #[derive(Default)]
     pub struct BVH {
         objects: Vec<Shape>,
         nodes: Vec<Node>,
@@ -648,8 +649,7 @@ mod bvh {
         fn build(objects: Vec<Shape>) -> BVH {
             let mut bvh = BVH {
                 objects,
-                nodes: vec![Node::default()],
-                root: NodeId(0),
+                ..Default::default()
             };
             let object_ids: Vec<usize> = (0..(bvh.objects.len())).collect();
 
@@ -732,7 +732,8 @@ mod bvh {
                 };
             }
 
-            build_recursive(&mut bvh, NodeId(0), object_ids);
+            let root = alloc(&mut bvh);
+            build_recursive(&mut bvh, root, object_ids);
             bvh
         }
     }

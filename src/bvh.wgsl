@@ -25,10 +25,6 @@ struct BVHNode {
     _pad_2: u32,
 }
 
-struct BVHMeta {
-    root: u32,
-}
-
 struct ComputePassUniforms {
     position: vec3<f32>,
     fov: f32,
@@ -57,9 +53,6 @@ var<storage, read> bvh_objects: array<Sphere>;
 @group(0) @binding(1)
 var<storage, read> bvh_nodes: array<BVHNode>;
 
-@group(0) @binding(2)
-var<uniform> bvh_meta: BVHMeta;
-
 @group(1) @binding(0)
 var output: texture_storage_2d<rgba32float, write>;
 
@@ -75,6 +68,7 @@ struct StackItem {
     flags: u32,
 }
 
+const MAX_ITER: u32 = 32u;
 var<private> stack: array<StackItem, 8>;
 
 fn aabb_tnear(node_id: u32, ray: Ray) -> f32 {
@@ -173,12 +167,12 @@ fn bvh_intersect(ray: Ray) -> Intersection {
     var stack_len: u32 = 1u;
     var intersection = Intersection();
 
-    let root_tnear = aabb_tnear(bvh_meta.root, ray);
+    let root_tnear = aabb_tnear(0, ray);
     if root_tnear == 0. {
         return intersection;
     }
     stack[0] = StackItem(
-        bvh_meta.root,
+        0,
         FLAGS_EMPTY,
     );
 
@@ -193,7 +187,7 @@ fn bvh_intersect(ray: Ray) -> Intersection {
 
     var iterations = 0u;
 
-    while stack_len > 0u {
+    while stack_len > 0u && iterations < MAX_ITER {
         iterations += 1u;
         let idx = stack_len - 1u;
         stack_len -= 1u;
