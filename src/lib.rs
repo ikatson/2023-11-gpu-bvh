@@ -449,6 +449,14 @@ mod bvh {
             overlaps: bool,
         },
     }
+
+    impl Default for NodeKind {
+        fn default() -> Self {
+            NodeKind::Leaf(ShapeId(0))
+        }
+    }
+
+    #[derive(Default)]
     struct Node {
         aabb: AxisAlignedBox,
         kind: NodeKind,
@@ -564,33 +572,6 @@ mod bvh {
             self.nodes.get(id.0)
         }
 
-        // pub fn intersection_recursion_less<'a>(
-        //     &'a self,
-        //     ray: &Ray,
-        // ) -> Option<(Intersection, &'a Shape)> {
-        //     let mut stack: Vec<NodeId> = vec![self.root];
-        //     while !stack.is_empty() {
-        //         let node = stack.pop().unwrap();
-        //         let node = self.get(node)?;
-        //         if node.aabb.intersects_vectors(ray) {
-        //             match node.kind {
-        //                 NodeKind::Leaf(shape_id) => {
-        //                     let shape = &self.objects[shape_id.0];
-        //                     let i = shape
-        //                         .intersection(ray)
-        //                         .and_then(|i| filter_by_normal(ray, i))?;
-        //                     return Some((i, shape));
-        //                 }
-        //                 NodeKind::Branch(left, right) => {
-        //                     stack.push(right);
-        //                     stack.push(left);
-        //                 }
-        //             }
-        //         }
-        //     }
-        //     todo!()
-        // }
-
         pub fn intersection<'a>(&'a self, ray: &Ray) -> Option<(Intersection, &'a Shape)> {
             fn get_intersecting_node<'a>(ray: &Ray, node: &'a Node) -> Option<(&'a Node, f32)> {
                 node.aabb.tnear(ray).map(|tnear| (node, tnear))
@@ -667,7 +648,7 @@ mod bvh {
         fn build(objects: Vec<Shape>) -> BVH {
             let mut bvh = BVH {
                 objects,
-                nodes: Vec::new(),
+                nodes: vec![Node::default()],
                 root: NodeId(0),
             };
             let object_ids: Vec<usize> = (0..(bvh.objects.len())).collect();
@@ -701,15 +682,20 @@ mod bvh {
                 }
             }
 
-            fn build_recursive(bvh: &mut BVH, mut object_ids: Vec<usize>) -> NodeId {
+            fn alloc(bvh: &mut BVH) -> NodeId {
+                let id = NodeId(bvh.nodes.len());
+                bvh.nodes.push(Node::default());
+                id
+            }
+
+            fn build_recursive(bvh: &mut BVH, current_node_id: NodeId, mut object_ids: Vec<usize>) {
                 if object_ids.len() == 1 {
                     let id = object_ids[0];
-                    let node_id = NodeId(bvh.nodes.len());
-                    bvh.nodes.push(Node {
+                    bvh.nodes[current_node_id.0] = Node {
                         aabb: bvh.objects[object_ids[0]].aabb(),
                         kind: NodeKind::Leaf(ShapeId(id)),
-                    });
-                    return node_id;
+                    };
+                    return;
                 }
                 let bb = aabb(bvh, &object_ids);
                 let longest_axis = find_longest_axis(&bb);
@@ -728,29 +714,36 @@ mod bvh {
                 });
 
                 let mid = object_ids.len() / 2;
-                let left = build_recursive(bvh, object_ids[0..mid].to_vec());
-                let right = build_recursive(bvh, object_ids[mid..].to_vec());
+                let (left, right) = (alloc(bvh), alloc(bvh));
+                build_recursive(bvh, left, object_ids[0..mid].to_vec());
+                build_recursive(bvh, right, object_ids[mid..].to_vec());
                 let overlaps = bvh
                     .get(left)
                     .unwrap()
                     .aabb
                     .intersects_other_aabb(&bvh.get(right).unwrap().aabb);
-                let node_id = NodeId(bvh.nodes.len());
-                bvh.nodes.push(Node {
+                bvh.nodes[current_node_id.0] = Node {
                     aabb: bb,
                     kind: NodeKind::Branch {
                         left,
                         right,
                         overlaps,
                     },
-                });
-                node_id
+                };
             }
 
-            bvh.root = build_recursive(&mut bvh, object_ids);
+            build_recursive(&mut bvh, NodeId(0), object_ids);
             bvh
         }
     }
+
+    // struct BVHOptimizer {}
+
+    // impl BVHOptimizer {
+    //     pub fn optimize(bvh: &BVH) -> BVH {
+    //         // Traverse the bvh in DFS
+    //     }
+    // }
 
     const FLAG_IS_LEAF: u32 = 1;
     const FLAG_OVERLAPS: u32 = 2;
