@@ -42,6 +42,7 @@ struct Intersection {
     coord: vec3<f32>,
     normal: vec3<f32>,
     is_hit: bool,
+    distance_squared: f32,
 }
 
 @group(0) @binding(0)
@@ -56,9 +57,9 @@ var output: texture_storage_2d<rgba32float, write>;
 @group(1) @binding(1)
 var<uniform> uniforms: ComputePassUniforms;
 
-const FLAGS_EMPTY: u32 = 0u;
-const FLAG_MERGE: u32 = 4u;
-const FLAG_IGNORE_IF_SET: u32 = 4u;
+const FLAG_EMPTY: u32 = 0u;
+// const FLAG_NO_EARLY_RETURN: u32 = 1u;
+const FLAG_MERGE: u32 = 2u;
 
 struct StackItem {
     node_id: u32,
@@ -137,19 +138,15 @@ fn sphere_ray_intersection(sphere: Sphere, ray: Ray) -> Intersection {
         ray.origin.z + t * ray.direction.z,
     );
     let normal = normalize(coord - sphere.center);
-    return Intersection(coord, normal, true);
+    let dist = coord - ray.origin;
+    return Intersection(coord, normal, true, dot(dist, dist));
 }
 
 fn merge_intersections(ray: Ray, i1: Intersection, i2: Intersection) -> Intersection {
     if !i1.is_hit {
         return i2;
     }
-    if !i2.is_hit {
-        return i1;
-    }
-    let i1_d = dot(i1.coord - ray.origin, i1.coord - ray.origin);
-    let i2_d = dot(i2.coord - ray.origin, i2.coord - ray.origin);
-    if (i1_d < i2_d) {
+    if (i1.distance_squared < i2.distance_squared) {
         return i1;
     }
     return i2;
@@ -170,7 +167,7 @@ fn bvh_intersect(ray: Ray) -> Intersection {
     }
     stack[0] = StackItem(
         0u,
-        FLAGS_EMPTY,
+        FLAG_EMPTY,
     );
 
     // Branching:
@@ -182,40 +179,53 @@ fn bvh_intersect(ray: Ray) -> Intersection {
     // slow (aabs intersect):
     // - check both. Then merge the intersections.
 
+    // However, with a stack it's fucking complicated.
+    // Goal: return as early as possible, stop traversal.
+    // When can we NOT return:
+    // - we are in ANY of the branches that where overlapping.
+    // - BOTH need to be searched, result merged.
+    // - the flags get only "worse" (poisoned) progressively.
+
     var iterations = 0u;
 
     while stack_len > 0u && iterations < MAX_ITER {
         iterations += 1u;
         let idx = stack_len - 1u;
         stack_len -= 1u;
-        let node_id = stack[idx].node_id;
+
         let op = stack[idx].flags;
 
+        let flag_merge = (op & FLAG_MERGE) == FLAG_MERGE;
+
+        if intersection.is_hit {
+            if op == FLAG_EMPTY {
+                return intersection;
+            }
+        }
+
+        let node_id = stack[idx].node_id;
         let is_leaf = (bvh_nodes[node_id].flags & FLAG_IS_LEAF) == FLAG_IS_LEAF;
         let overlaps = (bvh_nodes[node_id].flags & FLAG_OVERLAPS) == FLAG_OVERLAPS;
 
         if is_leaf {
-            // if intersection.is_hit && ((op & FLAG_IGNORE_IF_SET) == FLAG_IGNORE_IF_SET) {
-            //     continue;
-            // }
             let i = sphere_ray_intersection(bvh_objects[bvh_nodes[node_id].ids], ray);
-            if (i.is_hit) {
-                return i;
-            } else {
+            if !i.is_hit {
                 continue;
             }
-            if intersection.is_hit && ((op & FLAG_MERGE) == FLAG_MERGE) {
+            if flag_merge {
                 intersection = merge_intersections(ray, intersection, i);
             } else {
-                if (i.is_hit) {
+                if op == FLAG_EMPTY {
                     return i;
                 }
-
-//                intersection = i;
+                intersection = i;
             }
         } else {
-            let left = bvh_nodes[node_id].ids;
-            let right = left + 1u;
+            var left = bvh_nodes[node_id].ids;
+            var right = left + 1u;
+
+            var left_flags = op;
+            var right_flags = op;
 
             let left_tnear = aabb_tnear(left, ray);
             let right_tnear = aabb_tnear(right, ray);
@@ -224,18 +234,18 @@ fn bvh_intersect(ray: Ray) -> Intersection {
             if left_tnear != 0. && right_tnear != 0. {
                 if !overlaps {
                     // Encode "if the closest one hits, ignore the second"
-
                     if (right_tnear < left_tnear) {
-                        stack_len = stack_push(stack_len, left, op | FLAG_IGNORE_IF_SET);
-                        stack_len = stack_push(stack_len, right, op);
-                    } else {
-                        stack_len = stack_push(stack_len, right, op | FLAG_IGNORE_IF_SET);
-                        stack_len = stack_push(stack_len, left, op);
+                        let tmp = right;
+                        right = left;
+                        left = tmp;
                     }
                 } else {
-                    stack_len = stack_push(stack_len, left, op);
-                    stack_len = stack_push(stack_len, right, op | FLAG_MERGE);
+                    right_flags |= FLAG_MERGE;
+                    left_flags |= FLAG_MERGE;
                 }
+
+                stack_len = stack_push(stack_len, right, right_flags);
+                stack_len = stack_push(stack_len, left, left_flags);
             } else {
                 // Basic (super fast, only one pushed)
                 if left_tnear != 0. {
