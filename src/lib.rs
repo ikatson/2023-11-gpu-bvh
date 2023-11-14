@@ -759,25 +759,16 @@ mod bvh {
     // WGSL:
     #[repr(C)]
     struct GPUBVHNode {
-        aabb: GpuAabb, // align=16, offset=0, size=32
-
-        flags: u32,
-
-        // If leaf, this is sphere id.
+        // aabb min
+        min: Vec3,
         // If branch, id1 is left, id2 is right.
         id1: u32,
-        id2: u32,
-        _pad_struct: [u8; 4],
-    }
-
-    #[derive(Debug, Default, zerocopy_derive::AsBytes)]
-    // WGSL: align=16, size=32
-    #[repr(C)]
-    struct GpuAabb {
-        min: Vec3,
-        _pad: [u8; 4],
+        // aabb max
         max: Vec3,
-        _pad_struct: [u8; 4],
+        id2: u32,
+
+        flags: u32,
+        _pad_struct: [u8; 12],
     }
 
     pub struct GPUBVH {
@@ -807,11 +798,8 @@ mod bvh {
                 .iter()
                 .map(|n| {
                     let mut result = GPUBVHNode {
-                        aabb: GpuAabb {
-                            min: n.aabb.min,
-                            max: n.aabb.max,
-                            ..Default::default()
-                        },
+                        min: n.aabb.min,
+                        max: n.aabb.max,
                         ..Default::default()
                     };
                     match n.kind {

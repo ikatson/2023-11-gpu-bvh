@@ -13,12 +13,16 @@ const FLAG_IS_LEAF: u32 = 1u;
 const FLAG_OVERLAPS: u32 = 2u;
 
 struct BVHNode {
-    aabb: AABB,
-    flags: u32,
-    // If leaf, this is sphere id.
-    // If branch, id1 is left, id2 is right.
+    min: vec3f,
     id1: u32,
+    max: vec3f,
     id2: u32,
+    flags: u32,
+
+    // TODO: why the hell is this needed? Doesn't work without it.
+    _pad_0: u32,
+    _pad_1: u32,
+    _pad_2: u32,
 }
 
 struct BVHMeta {
@@ -75,8 +79,8 @@ var<private> stack: array<StackItem, 8>;
 
 fn aabb_tnear(node_id: u32, ray: Ray) -> f32 {
     // TODO: handle ray.direction == 0.
-    let t1_tmp = (bvh_nodes[node_id].aabb.min - ray.origin) / ray.direction;
-    let t2_tmp = (bvh_nodes[node_id].aabb.max - ray.origin) / ray.direction;
+    let t1_tmp = (bvh_nodes[node_id].min - ray.origin) / ray.direction;
+    let t2_tmp = (bvh_nodes[node_id].max - ray.origin) / ray.direction;
 
     let t1 = min(t1_tmp, t2_tmp);
     let t2 = max(t1_tmp, t2_tmp);
