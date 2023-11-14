@@ -440,6 +440,7 @@ struct BVHComputePipeline {
     pipeline: wgpu::ComputePipeline,
     bgl: wgpu::BindGroupLayout,
     output_texture: wgpu::Texture,
+    uniform_buffer: wgpu::Buffer,
     width: u32,
     height: u32,
 }
@@ -513,6 +514,11 @@ impl BVHComputePipeline {
             pipeline,
             bgl,
             output_texture: output,
+            uniform_buffer: device.create_buffer_init(&BufferInitDescriptor {
+                label: None,
+                contents: ComputePipelineUniforms::default().as_bytes(),
+                usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+            }),
             width,
             height,
         }
@@ -528,11 +534,8 @@ impl BVHComputePipeline {
             height: self.height,
             ..Default::default()
         };
-        let uniforms = device.create_buffer_init(&BufferInitDescriptor {
-            label: None,
-            contents: uniforms.as_bytes(),
-            usage: BufferUsages::UNIFORM,
-        });
+
+        queue.write_buffer(&self.uniform_buffer, 0, uniforms.as_bytes());
 
         let bg = device.create_bind_group(&BindGroupDescriptor {
             label: None,
@@ -546,7 +549,7 @@ impl BVHComputePipeline {
                 },
                 BindGroupEntry {
                     binding: 1,
-                    resource: uniforms.as_entire_binding(),
+                    resource: self.uniform_buffer.as_entire_binding(),
                 },
             ],
         });
