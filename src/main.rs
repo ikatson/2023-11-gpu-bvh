@@ -22,7 +22,7 @@ use wgpu::{
 use winit::{
     event::{Event, StartCause, WindowEvent},
     event_loop::EventLoop,
-    keyboard::KeyCode,
+    keyboard::{KeyCode, PhysicalKey::Code},
     window::WindowBuilder,
 };
 
@@ -179,10 +179,9 @@ struct App {
 impl App {
     fn on_keyboard_event(&mut self, event: winit::event::KeyEvent) {
         let key = match event.physical_key {
-            winit::keyboard::PhysicalKey::Code(KeyCode::KeyW)
-            | winit::keyboard::PhysicalKey::Code(KeyCode::KeyA)
-            | winit::keyboard::PhysicalKey::Code(KeyCode::KeyS)
-            | winit::keyboard::PhysicalKey::Code(KeyCode::KeyD) => event.physical_key,
+            Code(KeyCode::KeyW) | Code(KeyCode::KeyA) | Code(KeyCode::KeyS)
+            | Code(KeyCode::KeyD) | Code(KeyCode::Space) | Code(KeyCode::KeyZ)
+            | Code(KeyCode::KeyE) | Code(KeyCode::KeyQ) => event.physical_key,
             _ => return,
         };
         match event.state {
@@ -204,33 +203,53 @@ impl App {
 
     fn update(&mut self, dt: &Duration) {
         let speed = 10.;
+        let rotation_speed = 1.;
         let dt_secs = dt.as_secs_f32();
-        let mut direction = Vec3::default();
+        let mut movement = Vec3::default();
+        let mut new_direction = self.camera.direction;
         let forward = self.camera.direction;
         let left = self
             .camera
             .direction
             .cross(&Vec3::new(0., 1., 0.))
             .normalize();
-        let _up = left.cross(&forward).normalize();
+        let up = forward.cross(&left).normalize();
         for key in self.pressed_keys.iter().copied() {
             match key {
-                winit::keyboard::PhysicalKey::Code(KeyCode::KeyW) => {
-                    direction = direction + forward * speed * dt_secs;
+                Code(KeyCode::KeyW) => {
+                    movement = movement + forward * speed * dt_secs;
                 }
-                winit::keyboard::PhysicalKey::Code(KeyCode::KeyA) => {
-                    direction = direction + left * speed * dt_secs
+                Code(KeyCode::KeyA) => movement = movement + left * speed * dt_secs,
+                Code(KeyCode::KeyS) => {
+                    movement = movement - forward * speed * dt_secs;
                 }
-                winit::keyboard::PhysicalKey::Code(KeyCode::KeyS) => {
-                    direction = direction - forward * speed * dt_secs;
+                Code(KeyCode::KeyD) => {
+                    movement = movement - left * speed * dt_secs;
                 }
-                winit::keyboard::PhysicalKey::Code(KeyCode::KeyD) => {
-                    direction = direction - left * speed * dt_secs;
+                Code(KeyCode::KeyZ) => {
+                    movement = movement - up * speed * dt_secs;
+                }
+                Code(KeyCode::Space) => {
+                    movement = movement + up * speed * dt_secs;
+                }
+                // TODO: this doesn't work
+                Code(KeyCode::KeyE) => {
+                    new_direction = self
+                        .camera
+                        .direction
+                        .rotate_around_axis(&up, -rotation_speed * dt_secs)
+                }
+                Code(KeyCode::KeyQ) => {
+                    new_direction = self
+                        .camera
+                        .direction
+                        .rotate_around_axis(&up, rotation_speed * dt_secs)
                 }
                 _ => {}
             }
         }
-        self.camera.position = self.camera.position + direction;
+        self.camera.position = self.camera.position + movement;
+        self.camera.direction = new_direction;
     }
 
     fn render_to_compute_texture(&self, device: &wgpu::Device, queue: &wgpu::Queue) {

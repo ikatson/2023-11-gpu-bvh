@@ -87,6 +87,31 @@ impl Vec3 {
             ..Default::default()
         }
     }
+
+    pub fn rotate_around_axis(&self, axis: &Vec3, angle_rad: f32) -> Vec3 {
+        let cos_theta = angle_rad.cos();
+        let sin_theta = angle_rad.sin();
+        let one_minus_cos_theta = 1.0 - cos_theta;
+
+        // Rodrigues' rotation formula
+        let new_x = self.x * (cos_theta + axis.x * axis.x * one_minus_cos_theta)
+            + self.y * (axis.x * axis.y * one_minus_cos_theta - axis.z * sin_theta)
+            + self.z * (axis.x * axis.z * one_minus_cos_theta + axis.y * sin_theta);
+
+        let new_y = self.x * (axis.y * axis.x * one_minus_cos_theta + axis.z * sin_theta)
+            + self.y * (cos_theta + axis.y * axis.y * one_minus_cos_theta)
+            + self.z * (axis.y * axis.z * one_minus_cos_theta - axis.x * sin_theta);
+
+        let new_z = self.x * (axis.z * axis.x * one_minus_cos_theta - axis.y * sin_theta)
+            + self.y * (axis.z * axis.y * one_minus_cos_theta + axis.x * sin_theta)
+            + self.z * (cos_theta + axis.z * axis.z * one_minus_cos_theta);
+
+        Vec3 {
+            x: new_x,
+            y: new_y,
+            z: new_z,
+        }
+    }
 }
 
 impl<'a> Add<&'a Vec3> for Vec3 {
