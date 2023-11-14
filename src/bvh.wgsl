@@ -58,8 +58,7 @@ var output: texture_storage_2d<rgba32float, write>;
 var<uniform> uniforms: ComputePassUniforms;
 
 const FLAG_EMPTY: u32 = 0u;
-// const FLAG_NO_EARLY_RETURN: u32 = 1u;
-const FLAG_MERGE: u32 = 2u;
+const FLAG_MERGE: u32 = 1u;
 
 struct StackItem {
     node_id: u32,
@@ -212,14 +211,10 @@ fn bvh_intersect(ray: Ray) -> Intersection {
             if !i.is_hit {
                 continue;
             }
-            if flag_merge {
-                intersection = merge_intersections(ray, intersection, i);
-            } else {
-                if op == FLAG_EMPTY {
-                    return i;
-                }
-                intersection = i;
+            if op == FLAG_EMPTY {
+                return i;
             }
+            intersection = merge_intersections(ray, intersection, i);
         } else {
             var left = bvh_nodes[node_id].ids;
             var right = left + 1u;
