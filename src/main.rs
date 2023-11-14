@@ -26,7 +26,10 @@ use wgpu::{
 use winit::{
     event::{Event, MouseScrollDelta, StartCause, WindowEvent},
     event_loop::EventLoop,
-    keyboard::{KeyCode, PhysicalKey::Code},
+    keyboard::{
+        KeyCode,
+        PhysicalKey::{self, Code},
+    },
     window::WindowBuilder,
 };
 
@@ -175,6 +178,7 @@ struct AppState {
     time: Instant,
     screen_width: u32,
     screen_height: u32,
+    original_camera: PerspectiveCamera,
 }
 
 struct Renderer {
@@ -198,7 +202,9 @@ impl AppState {
         let key = match event.physical_key {
             Code(KeyCode::KeyW) | Code(KeyCode::KeyA) | Code(KeyCode::KeyS)
             | Code(KeyCode::KeyD) | Code(KeyCode::Space) | Code(KeyCode::KeyZ)
-            | Code(KeyCode::KeyE) | Code(KeyCode::KeyQ) => event.physical_key,
+            | Code(KeyCode::KeyE) | Code(KeyCode::KeyQ) | Code(KeyCode::Enter) => {
+                event.physical_key
+            }
             _ => return,
         };
         match event.state {
@@ -232,6 +238,11 @@ impl AppState {
         let rotation_speed = 1.;
         let dt_secs = dt.as_secs_f32();
         let mut movement = Vec3::default();
+
+        if self.pressed_keys.remove(&PhysicalKey::Code(KeyCode::Enter)) {
+            self.camera = self.original_camera;
+        }
+
         let mut new_direction = self.camera.direction;
         let forward = self.camera.direction;
         let left = self
@@ -278,13 +289,17 @@ impl AppState {
             match event {
                 OtherEvent::MouseScroll(ev) => match ev {
                     MouseScrollDelta::PixelDelta(pos) => {
-                        movement = movement + left * (pos.x as f32) / (self.screen_width as f32);
-                        movement = movement + up * (pos.y as f32) / (self.screen_height as f32);
+                        const MULT: f32 = 1.;
+                        movement =
+                            movement + left * MULT * (pos.x as f32) / (self.screen_width as f32);
+                        movement =
+                            movement + up * MULT * (pos.y as f32) / (self.screen_height as f32);
                     }
                     _ev => {}
                 },
                 OtherEvent::TouchPadMagnify(delta) => {
-                    self.camera.fov -= (delta * 10.) as f32;
+                    const MULT: f64 = 100.;
+                    self.camera.fov -= (delta * MULT) as f32;
                 }
             }
         }
@@ -686,7 +701,10 @@ async fn main_wgpu(
         entry_point: "render_through_bvh",
     });
 
+    let original_camera = *camera;
+
     let app = Mutex::new(AppState {
+        original_camera,
         camera: *camera,
         pressed_keys: Default::default(),
         time: Instant::now(),
@@ -708,10 +726,6 @@ async fn main_wgpu(
         compute_pipeline_render_bgl,
         compute_output_texture: output_texture,
     };
-
-    struct Payload {
-        camera: PerspectiveCamera,
-    }
 
     std::thread::scope(|s| {
         // "Game logic" thread
