@@ -439,7 +439,7 @@ impl Shape {
 mod bvh {
     use wgpu::{util::DeviceExt, BindGroupEntry, BindGroupLayoutEntry, BufferUsages, ShaderStages};
 
-    use crate::{AxisAlignedBox, Intersection, Ray, Shape, Sphere, Vec3, AABB};
+    use crate::{AxisAlignedBox, Intersection, Ray, Shape, Vec3, AABB};
 
     #[derive(Clone, Copy, Debug, Default)]
     struct ShapeId(usize);

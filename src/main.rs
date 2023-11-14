@@ -1,5 +1,5 @@
 use anyhow::Context;
-use rand::distributions::weighted;
+
 use std::{
     borrow::Cow,
     collections::HashSet,
@@ -18,13 +18,13 @@ use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
     BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry,
     BufferUsages, CommandEncoderDescriptor, ComputePassDescriptor, ComputePipelineDescriptor,
-    Extent3d, FragmentState, ImageCopyTexture, Origin2d, Origin3d, PipelineLayoutDescriptor,
+    Extent3d, FragmentState, PipelineLayoutDescriptor,
     PrimitiveState, RenderPassColorAttachment, RenderPassDescriptor, RenderPipelineDescriptor,
-    SamplerDescriptor, ShaderModuleDescriptor, ShaderStages, SurfaceTexture, TextureDescriptor,
+    SamplerDescriptor, ShaderModuleDescriptor, ShaderStages, TextureDescriptor,
     TextureUsages, TextureViewDescriptor, VertexAttribute, VertexBufferLayout, VertexState,
 };
 use winit::{
-    event::{Event, MouseScrollDelta, StartCause, WindowEvent},
+    event::{Event, MouseScrollDelta, WindowEvent},
     event_loop::EventLoop,
     keyboard::{
         KeyCode,
@@ -747,7 +747,7 @@ async fn main_wgpu(
         });
 
         // Event loop.
-        el.run(|event, target| {
+        el.run(|event, _target| {
             // Have the closure take ownership of the resources.
             // `event_loop.run` never returns, therefore we must do this to ensure
             // the resources are properly cleaned up.
@@ -765,17 +765,17 @@ async fn main_wgpu(
                     // WindowEvent::CursorEntered { device_id } => todo!(),
                     // WindowEvent::CursorLeft { device_id } => todo!(),
                     WindowEvent::MouseWheel {
-                        device_id,
+                        device_id: _,
                         delta,
-                        phase,
+                        phase: _,
                     } => {
                         app.lock().unwrap().on_mouse_scroll(delta);
                     }
                     // WindowEvent::MouseInput { device_id, state, button } => todo!(),
                     WindowEvent::TouchpadMagnify {
-                        device_id,
+                        device_id: _,
                         delta,
-                        phase,
+                        phase: _,
                     } => {
                         app.lock().unwrap().on_touchpad_magnify(delta);
                     }
