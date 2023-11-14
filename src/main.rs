@@ -20,16 +20,18 @@ use wgpu::{
     BufferUsages, CommandEncoderDescriptor, ComputePassDescriptor, ComputePipelineDescriptor,
     Extent3d, FragmentState, PipelineLayoutDescriptor, PrimitiveState, RenderPassColorAttachment,
     RenderPassDescriptor, RenderPipelineDescriptor, SamplerDescriptor, ShaderModuleDescriptor,
-    ShaderStages, TextureDescriptor, TextureUsages, TextureViewDescriptor, VertexAttribute,
-    VertexBufferLayout, VertexState,
+    ShaderStages, TextureDescriptor, TextureFormat, TextureUsages, TextureViewDescriptor,
+    VertexAttribute, VertexBufferLayout, VertexState,
 };
 use winit::{
-    event::{Event, MouseScrollDelta, WindowEvent},
+    event::{Event, MouseScrollDelta, StartCause, WindowEvent},
     event_loop::EventLoop,
     keyboard::{
         KeyCode,
         PhysicalKey::{self, Code},
     },
+    monitor::VideoMode,
+    platform::macos::WindowBuilderExtMacOS,
     window::WindowBuilder,
 };
 
@@ -80,6 +82,18 @@ struct PerspectiveCamera {
     _pad_2: [u8; 4],
     fov: f32,
     aspect: f32,
+}
+
+impl PerspectiveCamera {
+    fn new(position: Vec3, direction: Vec3, fov: f32, aspect: f32) -> Self {
+        Self {
+            position,
+            direction,
+            fov,
+            aspect,
+            ..Default::default()
+        }
+    }
 }
 
 fn render_bvh_perspective(
@@ -295,7 +309,7 @@ struct BlitTextureToTexturePipeline {
 impl BlitTextureToTexturePipeline {
     fn new(
         device: &wgpu::Device,
-        capabilities: &wgpu::SurfaceCapabilities,
+        output_format: TextureFormat,
         input_texture: &wgpu::Texture,
     ) -> Self {
         let shader = device.create_shader_module(ShaderModuleDescriptor {
@@ -358,7 +372,7 @@ impl BlitTextureToTexturePipeline {
             fragment: Some(FragmentState {
                 module: &shader,
                 entry_point: "main_fs",
-                targets: &[Some(capabilities.formats[0].into())],
+                targets: &[Some(output_format.into())],
             }),
             multiview: None,
         });
@@ -578,14 +592,14 @@ struct Renderer {
 impl Renderer {
     fn new(
         device: &wgpu::Device,
-        capabilities: wgpu::SurfaceCapabilities,
+        output_format: TextureFormat,
         bvh: BVH,
         width: u32,
         height: u32,
     ) -> Self {
         let compute = BVHComputePipeline::new(device, &bvh, width, height);
         let draw =
-            BlitTextureToTexturePipeline::new(device, &capabilities, &compute.output_texture);
+            BlitTextureToTexturePipeline::new(device, output_format, &compute.output_texture);
         Renderer {
             compute_pipeline: compute,
             draw_pipeline: draw,
@@ -618,16 +632,45 @@ struct ComputePipelineUniforms {
     _pad_struct: [u8; 8],
 }
 
-async fn main_wgpu(
-    bvh: BVH,
-    width: u32,
-    height: u32,
-    camera: &PerspectiveCamera,
-) -> anyhow::Result<()> {
+async fn main_wgpu(bvh: BVH, camera_position: Vec3, camera_target: Vec3) -> anyhow::Result<()> {
     let el = EventLoop::new()?;
+    let monitor = el.primary_monitor().unwrap();
+    for mode in monitor.video_modes() {
+        println!("{:?}", mode);
+    }
+    // let mode = monitor
+    //     .video_modes()
+    //     .find(|m| m.size().width == 1280)
+    //     .context("can't find video mode with width == 1280")?;
+    let mode = monitor
+        .video_modes()
+        .reduce(|a, b| {
+            if a.size().width < b.size().width && b.size().width <= 1920 {
+                b
+            } else {
+                a
+            }
+        })
+        .context("can't find video mode with width == 1280")?;
+    let width = mode.size().width;
+    let height = mode.size().height;
+
+    use winit::platform::macos::WindowExtMacOS;
+
     let window = WindowBuilder::new()
-        .with_inner_size(winit::dpi::PhysicalSize::new(width, height))
+        .with_inner_size(mode.size())
+        .with_decorations(false)
+        // .with_fullscreen(Some(winit::window::Fullscreen::Exclusive(mode)))
         .build(&el)?;
+    // window.set_fullscreen(Some(winit::window::Fullscreen::Borderless(Some(monitor))));
+    // window.set_simple_fullscreen(true);
+
+    let camera = PerspectiveCamera::new(
+        camera_position,
+        (camera_target - camera_position).normalize(),
+        110.,
+        width as f32 / height as f32,
+    );
 
     let instance = wgpu::Instance::default();
     let surface = unsafe { instance.create_surface(&window) }?;
@@ -645,19 +688,22 @@ async fn main_wgpu(
             &wgpu::DeviceDescriptor {
                 label: None,
                 features: wgpu::Features::default(),
-                limits: wgpu::Limits::downlevel_defaults(),
+                limits: wgpu::Limits::default(),
             },
             None,
         )
         .await
         .context("error requesting device")?;
 
-    let capabilities = surface.get_capabilities(&adapter);
+    let capabilities = dbg!(surface.get_capabilities(&adapter));
+    // let output_format = capabilities.formats[0];
+    // let output_format = TextureFormat::Rgba16Float;
+    let output_format = TextureFormat::Bgra8Unorm;
     surface.configure(
         &device,
         &wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: capabilities.formats[0],
+            format: output_format,
             width,
             height,
             present_mode: wgpu::PresentMode::AutoVsync,
@@ -666,9 +712,8 @@ async fn main_wgpu(
         },
     );
 
-    let app = Mutex::new(AppState::new(width, height, *camera));
-
-    let renderer = Renderer::new(&device, capabilities, bvh, width, height);
+    let app = Mutex::new(AppState::new(width, height, camera));
+    let renderer = Renderer::new(&device, output_format, bvh, width, height);
 
     std::thread::scope(|s| {
         // "Game logic" thread
@@ -722,6 +767,13 @@ async fn main_wgpu(
                     }
                     _we => {}
                 },
+                Event::NewEvents(StartCause::Init) => {
+                    let m = monitor
+                        .video_modes()
+                        .find(|m| m.size() == mode.size())
+                        .unwrap();
+                    window.set_fullscreen(Some(winit::window::Fullscreen::Exclusive(m)));
+                }
                 _e => {}
             }
         })
@@ -745,24 +797,8 @@ fn main() {
     let shapes = timeit!("make shapes", make_shapes());
 
     let bvh = timeit!("BVH::new", BVH::new(shapes));
-    const WIDTH: u32 = 1920;
-    const HEIGHT: u32 = 1080;
-    const ASPECT: f32 = WIDTH as f32 / HEIGHT as f32;
-    const FOV: f32 = 110.;
-    let position = Vec3::new(-10., -10., -10.);
-    let target = Vec3::new(16., 16., 16.);
-    let camera = PerspectiveCamera {
-        position,
-        direction: (target - position).normalize(),
-        fov: FOV,
-        aspect: ASPECT,
-        ..Default::default()
-    };
-    // let image = timeit!(
-    //     "render_into_image_cpu",
-    //     render_bvh_perspective(&bvh, &camera, WIDTH as usize, HEIGHT as usize)
-    // );
-    // timeit!("write PPM", image.write_ppm("/tmp/image.ppm").unwrap());
+    let camera_position = Vec3::new(-10., -10., -10.);
+    let camera_target = Vec3::new(16., 16., 16.);
 
-    pollster::block_on(main_wgpu(bvh, WIDTH, HEIGHT, &camera)).unwrap();
+    pollster::block_on(main_wgpu(bvh, camera_position, camera_target)).unwrap();
 }
