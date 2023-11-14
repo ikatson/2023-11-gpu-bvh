@@ -756,13 +756,11 @@ mod bvh {
         // aabb min
         min: Vec3,
         // If branch, id1 is left, id2 is right.
-        id1: u32,
+        // These are 16 bytes each.
+        ids: u32,
         // aabb max
         max: Vec3,
-        id2: u32,
-
         flags: u32,
-        _pad_struct: [u8; 12],
     }
 
     pub struct GPUBVH {
@@ -799,7 +797,7 @@ mod bvh {
                     match n.kind {
                         NodeKind::Leaf(shape_id) => {
                             result.flags |= FLAG_IS_LEAF;
-                            result.id1 = shape_id.0 as u32;
+                            result.ids = shape_id.0 as u32;
                         }
                         NodeKind::Branch {
                             left,
@@ -807,8 +805,7 @@ mod bvh {
                             overlaps,
                         } => {
                             result.flags |= if overlaps { FLAG_OVERLAPS } else { 0 };
-                            result.id1 = left.0 as u32;
-                            result.id2 = right.0 as u32;
+                            result.ids = left.0 as u32; // right is left + 1
                         }
                     }
                     result

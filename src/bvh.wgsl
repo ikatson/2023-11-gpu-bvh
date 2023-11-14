@@ -14,15 +14,9 @@ const FLAG_OVERLAPS: u32 = 2u;
 
 struct BVHNode {
     min: vec3f,
-    id1: u32,
+    ids: u32,
     max: vec3f,
-    id2: u32,
     flags: u32,
-
-    // TODO: why the hell is this needed? Doesn't work without it.
-    _pad_0: u32,
-    _pad_1: u32,
-    _pad_2: u32,
 }
 
 struct ComputePassUniforms {
@@ -201,18 +195,27 @@ fn bvh_intersect(ray: Ray) -> Intersection {
         let overlaps = (bvh_nodes[node_id].flags & FLAG_OVERLAPS) == FLAG_OVERLAPS;
 
         if is_leaf {
-            if intersection.is_hit && ((op & FLAG_IGNORE_IF_SET) == FLAG_IGNORE_IF_SET) {
+            // if intersection.is_hit && ((op & FLAG_IGNORE_IF_SET) == FLAG_IGNORE_IF_SET) {
+            //     continue;
+            // }
+            let i = sphere_ray_intersection(bvh_objects[bvh_nodes[node_id].ids], ray);
+            if (i.is_hit) {
+                return i;
+            } else {
                 continue;
             }
-            let i = sphere_ray_intersection(bvh_objects[bvh_nodes[node_id].id1], ray);
             if intersection.is_hit && ((op & FLAG_MERGE) == FLAG_MERGE) {
                 intersection = merge_intersections(ray, intersection, i);
             } else {
-                intersection = i;
+                if (i.is_hit) {
+                    return i;
+                }
+
+//                intersection = i;
             }
         } else {
-            var right = bvh_nodes[node_id].id2;
-            var left = bvh_nodes[node_id].id1;
+            let left = bvh_nodes[node_id].ids;
+            let right = left + 1u;
 
             let left_tnear = aabb_tnear(left, ray);
             let right_tnear = aabb_tnear(right, ray);
@@ -222,19 +225,16 @@ fn bvh_intersect(ray: Ray) -> Intersection {
                 if !overlaps {
                     // Encode "if the closest one hits, ignore the second"
 
-                    // Swap left and right
                     if (right_tnear < left_tnear) {
-                        let tmp = left;
-                        left = right;
-                        right = tmp;
+                        stack_len = stack_push(stack_len, left, op | FLAG_IGNORE_IF_SET);
+                        stack_len = stack_push(stack_len, right, op);
+                    } else {
+                        stack_len = stack_push(stack_len, right, op | FLAG_IGNORE_IF_SET);
+                        stack_len = stack_push(stack_len, left, op);
                     }
-
-                    // Now left is closer, more important. So push right first.
-                    stack_len = stack_push(stack_len, right, op | FLAG_IGNORE_IF_SET);
-                    stack_len = stack_push(stack_len, left, op);
                 } else {
-                    stack_len = stack_push(stack_len, right, op | FLAG_MERGE);
                     stack_len = stack_push(stack_len, left, op);
+                    stack_len = stack_push(stack_len, right, op | FLAG_MERGE);
                 }
             } else {
                 // Basic (super fast, only one pushed)
