@@ -43,6 +43,7 @@ struct Intersection {
     normal: vec3<f32>,
     is_hit: bool,
     distance_squared: f32,
+    index: u32,
 }
 
 @group(0) @binding(0)
@@ -90,10 +91,24 @@ fn aabb_tnear(node_id: u32, ray: Ray) -> f32 {
     }
 }
 
+fn get_color(ray: Ray, i: Intersection) -> vec4f {
+    // let light_direction = vec3f(-1., 1., -1.);
+    let light_position = vec3(0., 10., 0.);
+    let light_direction = -normalize(light_position);
+    let r = (i.index & 1u) == 1u;
+    let g = (i.index & 2u) == 2u;
+    let b = (i.index & 4u) == 4u;
+    let base = vec3f(vec3(r, g, b)) * 0.9 + 0.1;
+    let ambient = 0.1;
+    let lambert_intensity = max(dot(light_direction, i.normal), 0.);
+    let lambert = base * (ambient + (lambert_intensity * (1. - ambient)));
+    return vec4(lambert, 1.);
+}
+
 fn bvh_color(ray: Ray) -> vec4f {
     let i = bvh_intersect(ray);
     if i.is_hit {
-        return vec4(abs(i.normal), 1.);
+        return get_color(ray, i);
     }
     return vec4(0.);
 }
@@ -103,7 +118,8 @@ fn stack_push(current_len: u32, node_id: u32, op: u32) -> u32 {
     return current_len + 1u;
 }
 
-fn sphere_ray_intersection(sphere: Sphere, ray: Ray) -> Intersection {
+fn sphere_ray_intersection(id: u32, ray: Ray) -> Intersection {
+    let sphere = bvh_objects[id];
     let oc = vec3(
         ray.origin.x - sphere.center.x,
         ray.origin.y - sphere.center.y,
@@ -142,7 +158,7 @@ fn sphere_ray_intersection(sphere: Sphere, ray: Ray) -> Intersection {
     );
     let normal = normalize(coord - sphere.center);
     let dist = coord - ray.origin;
-    return Intersection(coord, normal, true, dot(dist, dist));
+    return Intersection(coord, normal, true, dot(dist, dist), id);
 }
 
 fn merge_intersections(ray: Ray, i1: Intersection, i2: Intersection) -> Intersection {
@@ -211,7 +227,7 @@ fn bvh_intersect(ray: Ray) -> Intersection {
         let overlaps = (bvh_nodes[node_id].flags & FLAG_OVERLAPS) == FLAG_OVERLAPS;
 
         if is_leaf {
-            let i = sphere_ray_intersection(bvh_objects[bvh_nodes[node_id].ids], ray);
+            let i = sphere_ray_intersection(bvh_nodes[node_id].ids, ray);
             if !i.is_hit {
                 continue;
             }
