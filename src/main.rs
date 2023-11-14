@@ -701,6 +701,9 @@ async fn main_wgpu(
                     event,
                 } => match event {
                     WindowEvent::KeyboardInput { event, .. } => {
+                        if let Code(KeyCode::KeyX) = event.physical_key {
+                            std::process::exit(0);
+                        };
                         app.lock().unwrap().on_keyboard_event(event);
                     }
                     WindowEvent::MouseWheel {
@@ -729,29 +732,13 @@ async fn main_wgpu(
 }
 
 fn main() {
-    const X: usize = 16;
-    const Y: usize = 8;
-    const Z: usize = 16;
-    // const X: usize = 8;
-    // const Y: usize = 8;
-    // const Z: usize = 8;
-    // const X: usize = 4;
-    // const Y: usize = 4;
-    // const Z: usize = 4;
-    const RADIUS: f32 = 0.2;
+    const SPHERES: usize = 32 * 1024;
     let make_shapes = || {
-        let mut shapes = Vec::with_capacity(X * Y * Z);
-        for x in 0..X {
-            for y in 0..Y {
-                for z in 0..Z {
-                    let center = Vec3::new(x as f32, y as f32, z as f32);
-                    shapes.push(Shape::Sphere(Sphere::new(
-                        center,
-                        RADIUS + ((rand::random::<f32>() - 0.5) * 0.4),
-                        // 0.48,
-                    )));
-                }
-            }
+        let mut shapes = Vec::with_capacity(SPHERES);
+        for _ in 0..SPHERES {
+            let r = |scale: f32, offset: f32| (rand::random::<f32>() + offset) * scale;
+            let center = Vec3::new(r(40., -0.5), r(0.1, -0.5), r(40., -0.5));
+            shapes.push(Shape::Sphere(Sphere::new(center, r(0.1, 0.05))));
         }
         shapes
     };
@@ -771,11 +758,11 @@ fn main() {
         aspect: ASPECT,
         ..Default::default()
     };
-    let image = timeit!(
-        "render_into_image_cpu",
-        render_bvh_perspective(&bvh, &camera, WIDTH as usize, HEIGHT as usize)
-    );
-    timeit!("write PPM", image.write_ppm("/tmp/image.ppm").unwrap());
+    // let image = timeit!(
+    //     "render_into_image_cpu",
+    //     render_bvh_perspective(&bvh, &camera, WIDTH as usize, HEIGHT as usize)
+    // );
+    // timeit!("write PPM", image.write_ppm("/tmp/image.ppm").unwrap());
 
     pollster::block_on(main_wgpu(bvh, WIDTH, HEIGHT, &camera)).unwrap();
 }
