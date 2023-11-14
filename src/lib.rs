@@ -427,7 +427,11 @@ mod bvh {
         // Points to shape id
         Leaf(ShapeId),
         // Points to other nodes.
-        Branch(NodeId, NodeId),
+        Branch {
+            left: NodeId,
+            right: NodeId,
+            overlaps: bool,
+        },
     }
     struct Node {
         aabb: AxisAlignedBox,
@@ -456,7 +460,11 @@ mod bvh {
                             .field("aabb", &node.aabb)
                             .field("shape", &self.bvh.objects[shape_id.0])
                             .finish(),
-                        NodeKind::Branch(left, right) => f
+                        NodeKind::Branch {
+                            left,
+                            right,
+                            overlaps,
+                        } => f
                             .debug_struct("Node")
                             .field("aabb", &node.aabb)
                             .field(
@@ -473,6 +481,7 @@ mod bvh {
                                     id: right,
                                 },
                             )
+                            .field("overlaps", &overlaps)
                             .finish(),
                     }
                 }
@@ -593,7 +602,11 @@ mod bvh {
                             .and_then(|i| filter_by_normal(ray, i))?;
                         Some((i, shape))
                     }
-                    NodeKind::Branch(left, right) => {
+                    NodeKind::Branch {
+                        left,
+                        right,
+                        overlaps,
+                    } => {
                         let trav = |n| traverse(bvh, ray, n);
                         let get = |id| get_intersecting_node(ray, bvh.get(id)?);
 
@@ -605,7 +618,7 @@ mod bvh {
 
                         // Fast path, left and right AABBs don't intersect.
                         // Traverse nearest first, first hit returns.
-                        if !left.aabb.intersects_other_aabb(&right.aabb) {
+                        if !overlaps {
                             let (near, far) = if lnear < rnear {
                                 (left, right)
                             } else {
@@ -701,10 +714,19 @@ mod bvh {
                 let mid = object_ids.len() / 2;
                 let left = build_recursive(bvh, object_ids[0..mid].to_vec());
                 let right = build_recursive(bvh, object_ids[mid..].to_vec());
+                let overlaps = bvh
+                    .get(left)
+                    .unwrap()
+                    .aabb
+                    .intersects_other_aabb(&bvh.get(right).unwrap().aabb);
                 let node_id = NodeId(bvh.nodes.len());
                 bvh.nodes.push(Node {
                     aabb: bb,
-                    kind: NodeKind::Branch(left, right),
+                    kind: NodeKind::Branch {
+                        left,
+                        right,
+                        overlaps,
+                    },
                 });
                 node_id
             }
@@ -714,13 +736,16 @@ mod bvh {
         }
     }
 
+    const FLAG_IS_LEAF: u32 = 1;
+    const FLAG_OVERLAPS: u32 = 2;
+
     #[derive(Debug, Default, zerocopy_derive::AsBytes)]
     // WGSL:
     #[repr(C)]
     struct GPUBVHNode {
         aabb: GPUAABB, // align=16, offset=0, size=32
 
-        is_leaf: u32, // align=4, offset=32, size=4
+        flags: u32,
 
         // If leaf, this is sphere id.
         // If branch, id1 is left, id2 is right.
@@ -775,13 +800,17 @@ mod bvh {
                     };
                     match n.kind {
                         NodeKind::Leaf(shape_id) => {
-                            result.is_leaf = 1;
+                            result.flags |= FLAG_IS_LEAF;
                             result.id1 = shape_id.0 as u32;
                         }
-                        NodeKind::Branch(l, r) => {
-                            result.is_leaf = 0;
-                            result.id1 = l.0 as u32;
-                            result.id2 = r.0 as u32;
+                        NodeKind::Branch {
+                            left,
+                            right,
+                            overlaps,
+                        } => {
+                            result.flags |= if overlaps { FLAG_OVERLAPS } else { 0 };
+                            result.id1 = left.0 as u32;
+                            result.id2 = right.0 as u32;
                         }
                     }
                     result

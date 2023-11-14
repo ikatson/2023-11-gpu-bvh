@@ -9,9 +9,12 @@ struct Sphere {
     radius: f32,
 }
 
+const FLAG_IS_LEAF: u32 = 1u;
+const FLAG_OVERLAPS: u32 = 2u;
+
 struct BVHNode {
     aabb: AABB,
-    is_leaf: u32,
+    flags: u32,
     // If leaf, this is sphere id.
     // If branch, id1 is left, id2 is right.
     id1: u32,
@@ -68,7 +71,7 @@ struct StackItem {
     flags: u32,
 }
 
-var<private> stack: array<StackItem, 32>;
+var<private> stack: array<StackItem, 8>;
 
 fn aabb_tnear(node_id: u32, ray: Ray) -> f32 {
     // TODO: handle ray.direction == 0.
@@ -190,7 +193,10 @@ fn bvh_intersect(ray: Ray) -> Intersection {
         let node_id = stack[idx].node_id;
         let op = stack[idx].flags;
 
-        if bvh_nodes[node_id].is_leaf == 1u {
+        let is_leaf = (bvh_nodes[node_id].flags & FLAG_IS_LEAF) == FLAG_IS_LEAF;
+        let overlaps = (bvh_nodes[node_id].flags & FLAG_OVERLAPS) == FLAG_OVERLAPS;
+
+        if is_leaf {
             if intersection.is_hit && ((op & FLAG_IGNORE_IF_SET) == FLAG_IGNORE_IF_SET) {
                 continue;
             }
@@ -209,7 +215,7 @@ fn bvh_intersect(ray: Ray) -> Intersection {
 
             // If both are crossing:
             if left_tnear != 0. && right_tnear != 0. {
-                if !aabb_intersects_other(left, right) {
+                if !overlaps {
                     // Encode "if the closest one hits, ignore the second"
 
                     // Swap left and right
