@@ -61,6 +61,9 @@ var<uniform> uniforms: ComputePassUniforms;
 @group(1) @binding(2)
 var<storage, read> random_colors: array<vec4f>;
 
+@group(1) @binding(3)
+var<storage, read> random_directions: array<vec3f>;
+
 const FLAG_EMPTY: u32 = 0u;
 const FLAG_MERGE: u32 = 1u;
 
@@ -196,7 +199,7 @@ fn get_sphere_color(id: u32) -> vec3f {
 }
 
 fn get_color(ray: Ray, i: Intersection) -> vec4f {
-    let albedo = randomColor(i.index);
+    let albedo = get_sphere_color(i.index);
 
     // Point light
     let light_direction = LIGHT_DIRECTION;
@@ -221,26 +224,60 @@ fn get_color(ray: Ray, i: Intersection) -> vec4f {
     return vec4(color, 1.);
 }
 
-fn bvh_color(ray: Ray) -> vec4f {
+fn occlusion_bvh(i: Intersection, color: vec3f, pixel: vec2<u32>) -> vec3f {
+    let id = (pixel.x + pixel.y * uniforms.height) % arrayLength(&random_colors);
+    let random = normalize(random_colors[id].xyz);
+
+    let tangent = cross(random, i.normal);
+    let bitangent = cross(i.normal, tangent);
+
+    let tangentToViewSpaceMatrix = mat3x3f(tangent, bitangent, i.normal);
+
+    var totalIntensity = vec3(0.);
+    let arrLen = arrayLength(&random_directions);
+
+    for (var j = 0u; j < arrLen; j++) {
+        let dir = tangentToViewSpaceMatrix * random_directions[j];
+        let new_ray = Ray(
+            i.coord + dir * 0.01,
+            dir,
+        );
+        let new_i = bvh_intersect(new_ray);
+        if new_i.is_hit {
+            totalIntensity += get_color(new_ray, new_i).xyz;
+        } else {
+            totalIntensity += vec3(1.) * lambert(LIGHT_DIRECTION, i.normal);
+        }
+    }
+
+    totalIntensity /= f32(arrLen);
+    return color * totalIntensity;
+}
+
+fn bvh_color(ray: Ray, pixel: vec2<u32>) -> vec4f {
     let i = bvh_intersect(ray);
     if i.is_hit {
-        var color = get_color(ray, i);
-        // Relfectivity
-        let new_direction = normalize(reflect(ray.direction, i.normal));
-        let new_ray = Ray(i.coord + new_direction * 0.01, new_direction);
-        let new_hit = bvh_intersect(new_ray);
-        if new_hit.is_hit {
-            color += get_color(new_ray, new_hit);
-        }
+        // var color = get_color(ray, i);
+
+        // Relfectivity.
+        // let new_direction = normalize(reflect(ray.direction, i.normal));
+        // let new_ray = Ray(i.coord + new_direction * 0.01, new_direction);
+        // let new_hit = bvh_intersect(new_ray);
+        // if new_hit.is_hit {
+        //     color += get_color(new_ray, new_hit);
+        // }
 
         // Shadow.
-        let shadow_ray_direction = -LIGHT_DIRECTION;
-        let shadow_ray = Ray(i.coord + shadow_ray_direction * 0.01, shadow_ray_direction);
-        let shadow_hit = bvh_intersect(shadow_ray);
-        if shadow_hit.is_hit {
-            color *= 0.1;
-        }
-        return color;
+        // let shadow_ray_direction = -LIGHT_DIRECTION;
+        // let shadow_ray = Ray(i.coord + shadow_ray_direction * 0.01, shadow_ray_direction);
+        // let shadow_hit = bvh_intersect(shadow_ray);
+        // if shadow_hit.is_hit {
+        //     color *= 0.1;
+        // }
+
+        let albedo = get_sphere_color(i.index);
+
+        return vec4(occlusion_bvh(i, albedo.xyz, pixel), 1.);
     }
     return vec4(0.);
 }
@@ -432,7 +469,7 @@ fn render_through_bvh(@builtin(global_invocation_id) global_id: vec3<u32>) {
         direction,
     );
 
-    let color = bvh_color(ray);
+    let color = bvh_color(ray, vec2(x_abs, y_abs));
 
     textureStore(output, vec2(x_abs, y_abs), color);
 }

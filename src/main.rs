@@ -530,6 +530,17 @@ impl BVHComputePipeline {
                     },
                     count: None,
                 },
+                // Random directions on a hemisphere
+                BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
             ],
         });
 
@@ -551,6 +562,24 @@ impl BVHComputePipeline {
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
         });
 
+        let random_directions_buffer = {
+            let mut random_directions = vec![0f32; 16 * 4];
+            rand::thread_rng()
+                .try_fill(&mut random_directions[..])
+                .unwrap();
+            random_directions.chunks_exact_mut(4).for_each(|chunk| {
+                let normalized = Vec3::new(chunk[0], chunk[1], chunk[2].abs()).normalize();
+                chunk[0] = normalized.x;
+                chunk[1] = normalized.y;
+                chunk[2] = normalized.z;
+            });
+            device.create_buffer_init(&BufferInitDescriptor {
+                label: None,
+                contents: random_directions.as_bytes(),
+                usage: BufferUsages::STORAGE,
+            })
+        };
+
         let bg = device.create_bind_group(&BindGroupDescriptor {
             label: None,
             layout: &bgl,
@@ -568,6 +597,10 @@ impl BVHComputePipeline {
                 BindGroupEntry {
                     binding: 2,
                     resource: random_colors.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 3,
+                    resource: random_directions_buffer.as_entire_binding(),
                 },
             ],
         });
@@ -672,7 +705,8 @@ async fn main_wgpu(bvh: BVH, camera_position: Vec3, camera_target: Vec3) -> anyh
     //     .video_modes()
     //     .find(|m| m.size().width == 1280)
     //     .context("can't find video mode with width == 1280")?;
-    const MAX_WIDTH: u32 = 1440;
+    //    const MAX_WIDTH: u32 = 1440;
+    const MAX_WIDTH: u32 = 800;
     let mode = monitor
         .video_modes()
         .reduce(|a, b| {
@@ -737,7 +771,8 @@ async fn main_wgpu(bvh: BVH, camera_position: Vec3, camera_target: Vec3) -> anyh
             format: output_format,
             width,
             height,
-            present_mode: wgpu::PresentMode::AutoVsync,
+            // present_mode: wgpu::PresentMode::AutoVsync,
+            present_mode: wgpu::PresentMode::AutoNoVsync,
             alpha_mode: capabilities.alpha_modes[0],
             view_formats: vec![],
         },
@@ -815,7 +850,7 @@ async fn main_wgpu(bvh: BVH, camera_position: Vec3, camera_target: Vec3) -> anyh
 }
 
 fn main() {
-    const SPHERES: usize = 32 * 1024;
+    const SPHERES: usize = 1 * 1024;
     // X is right
     // Y is forward
     // Z is up
@@ -824,7 +859,7 @@ fn main() {
         let mut shapes = Vec::with_capacity(SPHERES);
         for _ in 0..SPHERES {
             let r = |scale: f32, offset: f32| (rand::random::<f32>() + offset) * scale;
-            let center = Vec3::new(r(40., -0.5), r(40., -0.5), r(1., -0.5));
+            let center = Vec3::new(r(10., -0.5), r(10., -0.5), r(1., -0.5));
             shapes.push(Shape::Sphere(Sphere::new(center, r(0.2, 0.05))));
         }
         shapes
