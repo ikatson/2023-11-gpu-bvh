@@ -529,6 +529,10 @@ mod bvh {
             RecursiveBinarySplitBVHBuilder::build(objects)
         }
 
+        pub fn objects(&self) -> &[Shape] {
+            &self.objects
+        }
+
         pub fn root_aabb(&self) -> AxisAlignedBox {
             self.get(self.root).unwrap().aabb
         }

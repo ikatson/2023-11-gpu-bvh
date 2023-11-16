@@ -1,4 +1,5 @@
 use anyhow::Context;
+use rand::{Rng, RngCore};
 
 use std::{
     borrow::Cow,
@@ -457,6 +458,8 @@ struct BVHComputePipeline {
     uniform_buffer: wgpu::Buffer,
     width: u32,
     height: u32,
+    random_colors: wgpu::Buffer,
+    bg: wgpu::BindGroup,
 }
 
 impl BVHComputePipeline {
@@ -465,6 +468,16 @@ impl BVHComputePipeline {
             label: None,
             source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("bvh.wgsl"))),
         });
+
+        let random_colors = {
+            let mut random_colors = vec![0f32; bvh.objects().len() * 4];
+            rand::thread_rng().try_fill(&mut random_colors[..]).unwrap();
+            device.create_buffer_init(&BufferInitDescriptor {
+                label: None,
+                contents: random_colors.as_bytes(),
+                usage: BufferUsages::STORAGE,
+            })
+        };
 
         let gpu_bvh = GPUBVH::new(bvh, device);
 
@@ -508,6 +521,17 @@ impl BVHComputePipeline {
                     },
                     count: None,
                 },
+                // Random colors
+                BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
             ],
         });
 
@@ -523,16 +547,41 @@ impl BVHComputePipeline {
             entry_point: "render_through_bvh",
         });
 
+        let uniform_buffer = device.create_buffer_init(&BufferInitDescriptor {
+            label: None,
+            contents: ComputePipelineUniforms::default().as_bytes(),
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+        });
+
+        let bg = device.create_bind_group(&BindGroupDescriptor {
+            label: None,
+            layout: &bgl,
+            entries: &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(
+                        &output.create_view(&Default::default()),
+                    ),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: uniform_buffer.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 2,
+                    resource: random_colors.as_entire_binding(),
+                },
+            ],
+        });
+
         Self {
             gpu_bvh,
             pipeline,
             bgl,
             output_texture: output,
-            uniform_buffer: device.create_buffer_init(&BufferInitDescriptor {
-                label: None,
-                contents: ComputePipelineUniforms::default().as_bytes(),
-                usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-            }),
+            uniform_buffer,
+            random_colors,
+            bg,
             width,
             height,
         }
@@ -551,23 +600,6 @@ impl BVHComputePipeline {
 
         queue.write_buffer(&self.uniform_buffer, 0, uniforms.as_bytes());
 
-        let bg = device.create_bind_group(&BindGroupDescriptor {
-            label: None,
-            layout: &self.bgl,
-            entries: &[
-                BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(
-                        &self.output_texture.create_view(&Default::default()),
-                    ),
-                },
-                BindGroupEntry {
-                    binding: 1,
-                    resource: self.uniform_buffer.as_entire_binding(),
-                },
-            ],
-        });
-
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
         {
             let mut cpass = encoder.begin_compute_pass(&ComputePassDescriptor {
@@ -576,7 +608,7 @@ impl BVHComputePipeline {
             });
             cpass.set_pipeline(&self.pipeline);
             cpass.set_bind_group(0, &self.gpu_bvh.bind_group, &[]);
-            cpass.set_bind_group(1, &bg, &[]);
+            cpass.set_bind_group(1, &self.bg, &[]);
             cpass.dispatch_workgroups(self.width.div_ceil(8), self.height.div_ceil(8), 1);
         }
 
@@ -642,10 +674,11 @@ async fn main_wgpu(bvh: BVH, camera_position: Vec3, camera_target: Vec3) -> anyh
     //     .video_modes()
     //     .find(|m| m.size().width == 1280)
     //     .context("can't find video mode with width == 1280")?;
+    const MAX_WIDTH: u32 = 1440;
     let mode = monitor
         .video_modes()
         .reduce(|a, b| {
-            if a.size().width < b.size().width && b.size().width <= 1920 {
+            if a.size().width < b.size().width && b.size().width <= MAX_WIDTH {
                 b
             } else {
                 a
@@ -655,7 +688,7 @@ async fn main_wgpu(bvh: BVH, camera_position: Vec3, camera_target: Vec3) -> anyh
     let width = mode.size().width;
     let height = mode.size().height;
 
-    use winit::platform::macos::WindowExtMacOS;
+    // use winit::platform::macos::WindowExtMacOS;
 
     let window = WindowBuilder::new()
         .with_inner_size(mode.size())

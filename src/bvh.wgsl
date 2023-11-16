@@ -58,8 +58,13 @@ var output: texture_storage_2d<rgba32float, write>;
 @group(1) @binding(1)
 var<uniform> uniforms: ComputePassUniforms;
 
+@group(1) @binding(2)
+var<storage, read> random_colors: array<vec4f>;
+
 const FLAG_EMPTY: u32 = 0u;
 const FLAG_MERGE: u32 = 1u;
+
+const PI: f32 = 3.1415926;
 
 struct StackItem {
     node_id: u32,
@@ -91,21 +96,113 @@ fn aabb_tnear(node_id: u32, ray: Ray) -> f32 {
     }
 }
 
+// UE4Falloff function
+fn UE4Falloff(distance: f32, lightRadius: f32) -> f32 {
+    let nominator = clamp(1.0 - pow(distance / lightRadius, 4.0), 0.0, 1.0);
+    return (nominator * nominator) / (distance * distance + 1.0);
+}
+
+// UE4NDF function
+fn UE4NDF(NdotH: f32, roughness: f32) -> f32 {
+    let a = roughness * roughness;
+    let a2 = a * a;
+    let NdotH2 = NdotH * NdotH;
+
+    let num = a2;
+    var denom = (NdotH2 * (a2 - 1.0) + 1.0);
+    denom = PI * denom * denom;
+
+    return num / denom;
+}
+
+// GeometrySchlickGGX function
+fn GeometrySchlickGGX(NdotV: f32, roughness: f32) -> f32 {
+    let r = (roughness + 1.0);
+    let k = (r * r) / 8.0;
+
+    let num = NdotV;
+    let denom = NdotV * (1.0 - k) + k;
+
+    return num / denom;
+}
+
+// GeometrySmith function
+fn GeometrySmith(NdotV: f32, NdotL: f32, roughness: f32) -> f32 {
+    let ggx2 = GeometrySchlickGGX(NdotV, roughness);
+    let ggx1 = GeometrySchlickGGX(NdotL, roughness);
+    return ggx1 * ggx2;
+}
+
+// fresnelSchlick function with scalar input
+fn fresnelSchlickScalar(HdotV: f32, F0: f32) -> f32 {
+    return F0 + (1.0 - F0) * pow(1.0 - HdotV, 5.0);
+}
+
+// fresnelSchlick function with vector input
+fn fresnelSchlick(albedo: vec3<f32>, metallic: f32, HdotV: f32) -> vec3<f32> {
+    var F0 = vec3<f32>(0.04);
+    F0 = mix(F0, albedo, metallic);
+
+    return vec3<f32>(fresnelSchlickScalar(HdotV, F0.r), fresnelSchlickScalar(HdotV, F0.g), fresnelSchlickScalar(HdotV, F0.b));
+}
+
+// CookTorranceBRDF function
+fn CookTorranceBRDF(
+    albedo: vec3<f32>, roughness: f32, metallic: f32,
+    V: vec3<f32>, normal: vec3<f32>, L: vec3<f32>, radiance: vec3<f32>
+) -> vec3<f32> {
+    let H = normalize(V + L);
+    let N = normal;
+
+    let NdotL = max(dot(N, L), 0.0);
+    let NdotH = max(dot(N, H), 0.0);
+    let NdotV = max(dot(N, V), 0.0);
+    let HdotV = max(dot(H, V), 0.0);
+
+    let NDF = UE4NDF(NdotH, roughness);
+
+    let G = GeometrySmith(NdotV, NdotL, roughness);
+    let F = fresnelSchlick(albedo, metallic, HdotV);
+
+    var kD = vec3<f32>(1.0) - F;
+    kD *= 1.0 - metallic;
+
+    let numerator = NDF * G * F;
+    let denominator = 4.0 * NdotV * NdotL;
+    let specular = numerator / max(denominator, 0.001);
+
+    return (kD * albedo / PI + specular) * radiance * NdotL;
+}
+
+// toneMap function
+fn toneMap(color: vec3<f32>) -> vec3<f32> {
+    var c = color / (color + vec3<f32>(1.0));
+    c = pow(color, vec3<f32>(1.0 / 2.2));
+    return c;
+}
+
+// Function to generate a random color based on a u32 seed
+fn randomColor(seed: u32) -> vec3<f32> {
+    return random_colors[seed].xyz;
+}
+
 fn get_color(ray: Ray, i: Intersection) -> vec4f {
     let r = (i.index & 1u) == 1u;
     let g = (i.index & 2u) == 2u;
     let b = (i.index & 4u) == 4u;
-    let base = vec3f(vec3(r, g, b)) * 0.9 + 0.1;
+    // let albedo = vec3f(vec3(r, g, b)) * 0.8 + 0.2;
+    let albedo = randomColor(i.index);
 
     // Point light
     let light_position = vec3(0., 10., 0.);
-    let light_intensity = 128.;
-    let ambient = 0.1;
-    let distance = i.coord - light_position;
-    let lambert_point_light_intensity = max(dot(normalize(distance), i.normal), 0.) / dot(distance, distance) * light_intensity;
+    let light_direction = -normalize(light_position);
+    let light_intensity = 4.;
 
-    let total_lighting = lambert_point_light_intensity;
-    let color = base * (ambient + total_lighting);
+    let roughness = 0.2;
+    let metallic = 0.;
+    let radiance = vec3(1.);
+
+    let color = CookTorranceBRDF(albedo, roughness, metallic, ray.direction, i.normal, light_direction, radiance) * light_intensity;
     return vec4(color, 1.);
 }
 
@@ -114,8 +211,8 @@ fn bvh_color(ray: Ray) -> vec4f {
     if i.is_hit {
         var color = get_color(ray, i);
         // Relfectivity!
-        //
-        // let new_ray = Ray(i.coord, reflect(ray.direction, i.normal));
+
+        // let new_ray = Ray(i.coord, normalize(reflect(ray.direction, i.normal)));
         // let new_hit = bvh_intersect(new_ray);
         // if new_hit.is_hit {
         //     color += get_color(new_ray, new_hit);
@@ -293,7 +390,6 @@ fn render_through_bvh(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let x_abs: u32 = global_id.x;
     let y_abs: u32 = global_id.y;
 
-    let PI: f32 = 3.1415926;
     let forward = uniforms.direction;
     let left = normalize(cross(uniforms.direction, vec3(0., 1., 0.)));
     let up = normalize(cross(left, forward));
