@@ -72,6 +72,7 @@ struct StackItem {
 }
 
 const MAX_ITER: u32 = 128u;
+const LIGHT_DIRECTION: vec3f = vec3(0.09901475, 0.09901475, -0.99014753);
 var<private> stack: array<StackItem, 32>;
 
 fn aabb_tnear(node_id: u32, ray: Ray) -> f32 {
@@ -186,23 +187,37 @@ fn randomColor(seed: u32) -> vec3<f32> {
     return random_colors[seed].xyz;
 }
 
+fn lambert(light_direction: vec3f, normal: vec3f) -> f32 {
+    return max(dot(-light_direction, normal), 0.);
+}
+
+fn get_sphere_color(id: u32) -> vec3f {
+    return randomColor(id);
+}
+
 fn get_color(ray: Ray, i: Intersection) -> vec4f {
-    let r = (i.index & 1u) == 1u;
-    let g = (i.index & 2u) == 2u;
-    let b = (i.index & 4u) == 4u;
-    // let albedo = vec3f(vec3(r, g, b)) * 0.8 + 0.2;
     let albedo = randomColor(i.index);
 
     // Point light
-    let light_position = vec3(0., 10., 0.);
-    let light_direction = -normalize(light_position);
-    let light_intensity = 4.;
+    let light_direction = LIGHT_DIRECTION;
+    var light_intensity = 1.;
 
-    let roughness = 0.2;
-    let metallic = 0.;
-    let radiance = vec3(1.);
+    // let new_ray = Ray(i.coord - light_direction * 0.1, -light_direction);
+    // let new_hit = bvh_intersect(new_ray);
+    // if new_hit.is_hit {
+    //     // Hit some other object.
+    //     // return vec4(0., 0., 0., 1.);
+    //     light_intensity = 0.;
+    // }
 
-    let color = CookTorranceBRDF(albedo, roughness, metallic, ray.direction, i.normal, light_direction, radiance) * light_intensity;
+    // return vec4(albedo * light_intensity, 1.);
+
+    // let roughness = 0.2;
+    // let metallic = 0.;
+    // let radiance = vec3(1.);
+
+    // // let color = CookTorranceBRDF(albedo, roughness, metallic, ray.direction, i.normal, light_direction, radiance) * light_intensity;
+    let color = albedo * lambert(light_direction, i.normal) * light_intensity;
     return vec4(color, 1.);
 }
 
@@ -210,13 +225,21 @@ fn bvh_color(ray: Ray) -> vec4f {
     let i = bvh_intersect(ray);
     if i.is_hit {
         var color = get_color(ray, i);
-        // Relfectivity!
+        // Relfectivity
+        let new_direction = normalize(reflect(ray.direction, i.normal));
+        let new_ray = Ray(i.coord + new_direction * 0.01, new_direction);
+        let new_hit = bvh_intersect(new_ray);
+        if new_hit.is_hit {
+            color += get_color(new_ray, new_hit);
+        }
 
-        // let new_ray = Ray(i.coord, normalize(reflect(ray.direction, i.normal)));
-        // let new_hit = bvh_intersect(new_ray);
-        // if new_hit.is_hit {
-        //     color += get_color(new_ray, new_hit);
-        // }
+        // Shadow.
+        let shadow_ray_direction = -LIGHT_DIRECTION;
+        let shadow_ray = Ray(i.coord + shadow_ray_direction * 0.01, shadow_ray_direction);
+        let shadow_hit = bvh_intersect(shadow_ray);
+        if shadow_hit.is_hit {
+            color *= 0.1;
+        }
         return color;
     }
     return vec4(0.);
@@ -391,7 +414,8 @@ fn render_through_bvh(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let y_abs: u32 = global_id.y;
 
     let forward = uniforms.direction;
-    let left = normalize(cross(uniforms.direction, vec3(0., 1., 0.)));
+    let abs_up = vec3f(0., 0., 1.);
+    let left = -normalize(cross(uniforms.direction, abs_up));
     let up = normalize(cross(left, forward));
 
     // fov/2 = hor / dirlen. As dirlen == 1, thus fov/2 = hor

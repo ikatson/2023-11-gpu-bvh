@@ -108,7 +108,8 @@ fn render_bvh_perspective(
     const PI: f32 = std::f32::consts::PI;
     let image = Image::new(output_width, output_height);
     let forward = camera.direction;
-    let left = camera.direction.cross(&Vec3::new(0., 1., 0.)).normalize();
+    const UP: Vec3 = Vec3::new(0., 0., 1.);
+    let left = camera.direction.cross(&UP).normalize() * -1.;
     let up = left.cross(&forward).normalize();
 
     // fov/2 = hor / dirlen. As dirlen == 1, thus fov/2 = hor
@@ -237,12 +238,9 @@ impl AppState {
         }
 
         let mut new_direction = self.camera.direction;
+        const ABS_UP: Vec3 = Vec3::new(0., 0., 1.);
         let forward = self.camera.direction;
-        let left = self
-            .camera
-            .direction
-            .cross(&Vec3::new(0., 1., 0.))
-            .normalize();
+        let left = ABS_UP.cross(&self.camera.direction).normalize();
         let up = forward.cross(&left).normalize();
         for key in self.pressed_keys.iter().copied() {
             match key {
@@ -818,20 +816,23 @@ async fn main_wgpu(bvh: BVH, camera_position: Vec3, camera_target: Vec3) -> anyh
 
 fn main() {
     const SPHERES: usize = 32 * 1024;
+    // X is right
+    // Y is forward
+    // Z is up
+
     let make_shapes = || {
         let mut shapes = Vec::with_capacity(SPHERES);
         for _ in 0..SPHERES {
             let r = |scale: f32, offset: f32| (rand::random::<f32>() + offset) * scale;
-            let center = Vec3::new(r(40., -0.5), r(1., -0.5), r(40., -0.5));
-            shapes.push(Shape::Sphere(Sphere::new(center, r(0.1, 0.05))));
+            let center = Vec3::new(r(40., -0.5), r(40., -0.5), r(1., -0.5));
+            shapes.push(Shape::Sphere(Sphere::new(center, r(0.2, 0.05))));
         }
         shapes
     };
     let shapes = timeit!("make shapes", make_shapes());
-
     let bvh = timeit!("BVH::new", BVH::new(shapes));
-    let camera_position = Vec3::new(-10., -10., -10.);
-    let camera_target = Vec3::new(16., 16., 16.);
+    let camera_position = Vec3::new(-7., 6., 5.);
+    let camera_target = Vec3::new(0., 0., 0.);
 
     pollster::block_on(main_wgpu(bvh, camera_position, camera_target)).unwrap();
 }
