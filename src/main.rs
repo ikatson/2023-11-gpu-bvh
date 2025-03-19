@@ -763,7 +763,7 @@ async fn main_wgpu(bvh: BVH, camera_position: Vec3, camera_target: Vec3) -> anyh
     let capabilities = dbg!(surface.get_capabilities(&adapter));
     // let output_format = capabilities.formats[0];
     // let output_format = TextureFormat::Rgba16Float;
-    let output_format = TextureFormat::Bgra8Unorm;
+    let output_format = TextureFormat::Bgra8UnormSrgb;
     surface.configure(
         &device,
         &wgpu::SurfaceConfiguration {
