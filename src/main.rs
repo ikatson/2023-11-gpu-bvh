@@ -31,9 +31,7 @@ use winit::{
         KeyCode,
         PhysicalKey::{self, Code},
     },
-    monitor::VideoMode,
-    platform::macos::WindowBuilderExtMacOS,
-    window::WindowBuilder,
+    window::WindowAttributes,
 };
 
 use bvh::*;
@@ -349,7 +347,7 @@ impl BlitTextureToTexturePipeline {
             layout: Some(&layout),
             vertex: VertexState {
                 module: &shader,
-                entry_point: "main_vs",
+                entry_point: Some("main_vs"),
                 // Quad vertex buffer
                 buffers: &[VertexBufferLayout {
                     array_stride: core::mem::size_of::<Vec3>() as u64,
@@ -360,6 +358,7 @@ impl BlitTextureToTexturePipeline {
                         shader_location: 0,
                     }],
                 }],
+                compilation_options: Default::default(),
             },
             primitive: PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleStrip,
@@ -370,10 +369,12 @@ impl BlitTextureToTexturePipeline {
             multisample: Default::default(),
             fragment: Some(FragmentState {
                 module: &shader,
-                entry_point: "main_fs",
+                entry_point: Some("main_fs"),
                 targets: &[Some(output_format.into())],
+                compilation_options: Default::default(),
             }),
             multiview: None,
+            cache: Default::default(),
         });
         let quad: [Vec3; 4] = [
             Vec3::new(-1., 1., 0.),
@@ -553,7 +554,9 @@ impl BVHComputePipeline {
             label: None,
             layout: Some(&layout),
             module: &compute_shader,
-            entry_point: "render_through_bvh",
+            entry_point: Some("render_through_bvh"),
+            compilation_options: Default::default(),
+            cache: Default::default(),
         });
 
         let uniform_buffer = device.create_buffer_init(&BufferInitDescriptor {
@@ -697,7 +700,8 @@ struct ComputePipelineUniforms {
 
 async fn main_wgpu(bvh: BVH, camera_position: Vec3, camera_target: Vec3) -> anyhow::Result<()> {
     let el = EventLoop::new()?;
-    let monitor = el.primary_monitor().unwrap();
+    let window = el.create_window(WindowAttributes::default())?;
+    let monitor = window.primary_monitor().unwrap();
     for mode in monitor.video_modes() {
         println!("{:?}", mode);
     }
@@ -720,16 +724,6 @@ async fn main_wgpu(bvh: BVH, camera_position: Vec3, camera_target: Vec3) -> anyh
     let width = mode.size().width;
     let height = mode.size().height;
 
-    // use winit::platform::macos::WindowExtMacOS;
-
-    let window = WindowBuilder::new()
-        .with_inner_size(mode.size())
-        .with_decorations(false)
-        // .with_fullscreen(Some(winit::window::Fullscreen::Exclusive(mode)))
-        .build(&el)?;
-    // window.set_fullscreen(Some(winit::window::Fullscreen::Borderless(Some(monitor))));
-    // window.set_simple_fullscreen(true);
-
     let camera = PerspectiveCamera::new(
         camera_position,
         (camera_target - camera_position).normalize(),
@@ -738,7 +732,7 @@ async fn main_wgpu(bvh: BVH, camera_position: Vec3, camera_target: Vec3) -> anyh
     );
 
     let instance = wgpu::Instance::default();
-    let surface = unsafe { instance.create_surface(&window) }?;
+    let surface = instance.create_surface(&window)?;
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
@@ -751,9 +745,7 @@ async fn main_wgpu(bvh: BVH, camera_position: Vec3, camera_target: Vec3) -> anyh
     let (device, queue) = adapter
         .request_device(
             &wgpu::DeviceDescriptor {
-                label: None,
-                features: wgpu::Features::default(),
-                limits: wgpu::Limits::default(),
+                ..Default::default()
             },
             None,
         )
@@ -762,8 +754,8 @@ async fn main_wgpu(bvh: BVH, camera_position: Vec3, camera_target: Vec3) -> anyh
 
     let capabilities = dbg!(surface.get_capabilities(&adapter));
     // let output_format = capabilities.formats[0];
-    // let output_format = TextureFormat::Rgba16Float;
-    let output_format = TextureFormat::Bgra8UnormSrgb;
+    let output_format = TextureFormat::Rgba16Float;
+    // let output_format = TextureFormat::Bgra8UnormSrgb;
     surface.configure(
         &device,
         &wgpu::SurfaceConfiguration {
@@ -771,10 +763,10 @@ async fn main_wgpu(bvh: BVH, camera_position: Vec3, camera_target: Vec3) -> anyh
             format: output_format,
             width,
             height,
-            // present_mode: wgpu::PresentMode::AutoVsync,
-            present_mode: wgpu::PresentMode::AutoNoVsync,
+            present_mode: wgpu::PresentMode::AutoVsync,
             alpha_mode: capabilities.alpha_modes[0],
             view_formats: vec![],
+            desired_maximum_frame_latency: 2,
         },
     );
 
@@ -824,7 +816,7 @@ async fn main_wgpu(bvh: BVH, camera_position: Vec3, camera_target: Vec3) -> anyh
                     } => {
                         app.lock().unwrap().on_mouse_scroll(delta);
                     }
-                    WindowEvent::TouchpadMagnify {
+                    WindowEvent::PinchGesture {
                         device_id: _,
                         delta,
                         phase: _,
@@ -834,11 +826,11 @@ async fn main_wgpu(bvh: BVH, camera_position: Vec3, camera_target: Vec3) -> anyh
                     _we => {}
                 },
                 Event::NewEvents(StartCause::Init) => {
-                    let m = monitor
-                        .video_modes()
-                        .find(|m| m.size() == mode.size())
-                        .unwrap();
-                    window.set_fullscreen(Some(winit::window::Fullscreen::Exclusive(m)));
+                    // let m = monitor
+                    //     .video_modes()
+                    //     .find(|m| m.size() == mode.size())
+                    //     .unwrap();
+                    // window.set_fullscreen(Some(winit::window::Fullscreen::Exclusive(m)));
                 }
                 _e => {}
             }
@@ -850,7 +842,7 @@ async fn main_wgpu(bvh: BVH, camera_position: Vec3, camera_target: Vec3) -> anyh
 }
 
 fn main() {
-    const SPHERES: usize = 1 * 1024;
+    const SPHERES: usize = 512;
     // X is right
     // Y is forward
     // Z is up

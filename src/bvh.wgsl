@@ -203,7 +203,7 @@ fn get_color(ray: Ray, i: Intersection) -> vec4f {
 
     // Point light
     let light_direction = LIGHT_DIRECTION;
-    var light_intensity = 1.;
+    var light_intensity = 16.;
 
     // let new_ray = Ray(i.coord - light_direction * 0.1, -light_direction);
     // let new_hit = bvh_intersect(new_ray);
