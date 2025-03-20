@@ -222,11 +222,9 @@ impl InitializedApp {
         match event.state {
             winit::event::ElementState::Pressed => {
                 self.pressed_keys.insert(key);
-                self.update();
             }
             winit::event::ElementState::Released => {
                 self.pressed_keys.remove(&key);
-                self.update();
             }
         }
     }
@@ -240,12 +238,10 @@ impl InitializedApp {
 
     fn on_mouse_scroll(&mut self, ev: MouseScrollDelta) {
         self.other_events.push(OtherEvent::MouseScroll(ev));
-        self.update();
     }
 
     fn on_touchpad_magnify(&mut self, delta: f64) {
         self.other_events.push(OtherEvent::TouchPadMagnify(delta));
-        self.update();
     }
 
     fn update(&mut self) {
@@ -811,28 +807,6 @@ impl WinitAppHandlerState {
         );
         let app = Arc::new(Mutex::new(app));
         *self = WinitAppHandlerState::Initialized(app.clone());
-
-        // "Game logic" thread
-        // std::thread::spawn({
-        //     let app = app.clone();
-        //     move || loop {
-        //         app.lock().unwrap().update();
-        //         std::thread::sleep(Duration::from_millis(8));
-        //     }
-        // });
-
-        // Render thread. It will spawn at most at 60 fps by itself.
-        // std::thread::spawn({
-        //     move || loop {
-        //         let camera = { app.lock().unwrap().camera };
-        //         timeit!("render", {
-        //             let txt = surface.get_current_texture().unwrap();
-        //             renderer.render(&txt, &device, &queue, &camera);
-        //             window.pre_present_notify();
-        //             txt.present();
-        //         });
-        //     }
-        // });
     }
 }
 
@@ -892,7 +866,6 @@ impl winit::application::ApplicationHandler for WinitAppHandler {
                 };
                 let mut app = app.lock().unwrap();
                 app.on_keyboard_event(event);
-                app.update();
                 app.window.request_redraw();
             }
             WindowEvent::MouseWheel {
@@ -902,7 +875,6 @@ impl winit::application::ApplicationHandler for WinitAppHandler {
             } => {
                 let mut app = app.lock().unwrap();
                 app.on_mouse_scroll(delta);
-                app.update();
                 app.window.request_redraw();
             }
             WindowEvent::PinchGesture {
@@ -912,7 +884,6 @@ impl winit::application::ApplicationHandler for WinitAppHandler {
             } => {
                 let mut app = app.lock().unwrap();
                 app.on_touchpad_magnify(delta);
-                app.update();
                 app.window.request_redraw();
             }
             _we => {}
