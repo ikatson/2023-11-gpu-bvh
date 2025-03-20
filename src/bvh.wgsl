@@ -244,7 +244,7 @@ fn get_color(ray: Ray, i: Intersection) -> vec4f {
 
     // Point light
     let light_direction = LIGHT_DIRECTION;
-    var light_intensity = 4.;
+    var light_intensity = 1.;
 
     // let new_ray = Ray(i.coord - light_direction * 0.1, -light_direction);
     // let new_hit = bvh_intersect(new_ray);
@@ -322,7 +322,10 @@ fn bvh_color(ray: Ray, pixel: vec2<u32>) -> vec4f {
 
         // return vec4(occlusion_bvh(i, albedo.xyz, pixel), 1.);
     }
-    return vec4(0.);
+
+    // sample background
+    let bg_color = textureLoad(bgColorTexture, pixel, 0);
+    return vec4(vec3(bg_color.rgb), 1.);
 }
 
 fn stack_push(current_len: u32, node_id: u32, op: u32) -> u32 {

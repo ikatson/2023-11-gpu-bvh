@@ -52,10 +52,10 @@ fn main_fs(
 ) -> @location(0) vec4<f32> {
     let color: vec4<f32> = textureSample(input_texture, input_texture_sampler, vo.tx_coord);
 
-    const DISPLAY_RANGE: f32 = 1.;
+    const DISPLAY_RANGE: f32 = 1.5;
 
     // return vec4(tonemap_reinhard(color.rgb), 1.) * DISPLAY_RANGE;
-    // return vec4(tonemap_aces(color.rgb), 1.) * DISPLAY_RANGE;
-    return vec4(tonemap_hdr(color.rgb), 1.) * DISPLAY_RANGE;
+    return vec4(tonemap_aces(color.rgb), 1.) * DISPLAY_RANGE;
+    // return vec4(tonemap_hdr(color.rgb), 1.) * DISPLAY_RANGE;
     // return color;
 }

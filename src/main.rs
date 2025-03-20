@@ -490,7 +490,9 @@ impl BVHComputePipeline {
         ))
         .unwrap();
         dbg!(dec.metadata());
-        let background = DynamicImage::from_decoder(dec).unwrap().to_rgba16();
+        let background = DynamicImage::from_decoder(dec).unwrap();
+        dbg!(background.color());
+        let background = background.to_rgba32f();
         let bgtexture = device.create_texture_with_data(
             queue,
             &TextureDescriptor {
@@ -503,14 +505,13 @@ impl BVHComputePipeline {
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
-                format: TextureFormat::Rgba16Float,
+                format: TextureFormat::Rgba32Float,
                 usage: TextureUsages::TEXTURE_BINDING,
-                view_formats: &[TextureFormat::Rgba16Float],
+                view_formats: &[TextureFormat::Rgba32Float],
             },
             Default::default(),
             background.as_bytes(),
         );
-        let bgtexture_sampler = device.create_sampler(&SamplerDescriptor::default());
 
         let compute_shader = device.create_shader_module(ShaderModuleDescriptor {
             label: None,
@@ -595,16 +596,10 @@ impl BVHComputePipeline {
                     binding: 4,
                     visibility: ShaderStages::COMPUTE,
                     ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
                         view_dimension: TextureViewDimension::D2,
                         multisampled: false,
                     },
-                    count: None,
-                },
-                BindGroupLayoutEntry {
-                    binding: 5,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Sampler(SamplerBindingType::Filtering),
                     count: None,
                 },
             ],
@@ -675,10 +670,6 @@ impl BVHComputePipeline {
                     resource: BindingResource::TextureView(
                         &bgtexture.create_view(&TextureViewDescriptor::default()),
                     ),
-                },
-                BindGroupEntry {
-                    binding: 5,
-                    resource: BindingResource::Sampler(&bgtexture_sampler),
                 },
             ],
         });
