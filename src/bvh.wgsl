@@ -53,7 +53,7 @@ var<storage, read> bvh_objects: array<Sphere>;
 var<storage, read> bvh_nodes: array<BVHNode>;
 
 @group(1) @binding(0)
-var output: texture_storage_2d<rgba32float, write>;
+var output: texture_storage_2d<rgba16float, write>;
 
 @group(1) @binding(1)
 var<uniform> uniforms: ComputePassUniforms;
@@ -63,6 +63,10 @@ var<storage, read> random_colors: array<vec4f>;
 
 @group(1) @binding(3)
 var<storage, read> random_directions: array<vec3f>;
+
+@group(1) @binding(4) var bgColorTexture : texture_2d<f32>;
+@group(1) @binding(5) var bgColorSampler : sampler;
+
 
 const FLAG_EMPTY: u32 = 0u;
 const FLAG_MERGE: u32 = 1u;

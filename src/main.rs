@@ -1,4 +1,5 @@
 use anyhow::Context;
+use image::{codecs::hdr::HdrDecoder, DynamicImage};
 use rand::{Rng, RngCore};
 
 use std::{
@@ -19,11 +20,12 @@ use wgpu::{
     rwh::HasWindowHandle,
     util::{BufferInitDescriptor, DeviceExt},
     BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry,
-    BufferUsages, CommandEncoderDescriptor, ComputePassDescriptor, ComputePipelineDescriptor,
-    Device, Extent3d, FragmentState, PipelineLayoutDescriptor, PrimitiveState, Queue,
-    RenderPassColorAttachment, RenderPassDescriptor, RenderPipelineDescriptor, SamplerDescriptor,
-    ShaderModuleDescriptor, ShaderStages, Surface, TextureDescriptor, TextureFormat, TextureUsages,
-    TextureViewDescriptor, VertexAttribute, VertexBufferLayout, VertexState,
+    BindingResource, BufferUsages, CommandEncoderDescriptor, ComputePassDescriptor,
+    ComputePipelineDescriptor, Device, Extent3d, FragmentState, PipelineLayoutDescriptor,
+    PrimitiveState, Queue, RenderPassColorAttachment, RenderPassDescriptor,
+    RenderPipelineDescriptor, SamplerBindingType, SamplerDescriptor, ShaderModuleDescriptor,
+    ShaderStages, Surface, TextureDescriptor, TextureFormat, TextureUsages, TextureViewDescriptor,
+    TextureViewDimension, VertexAttribute, VertexBufferLayout, VertexState,
 };
 use winit::{
     event::{Event, MouseScrollDelta, StartCause, WindowEvent},
@@ -482,7 +484,34 @@ struct BVHComputePipeline {
 }
 
 impl BVHComputePipeline {
-    fn new(device: &wgpu::Device, bvh: &BVH, width: u32, height: u32) -> Self {
+    fn new(device: &wgpu::Device, queue: &wgpu::Queue, bvh: &BVH, width: u32, height: u32) -> Self {
+        let dec = HdrDecoder::new(std::io::BufReader::new(
+            std::fs::File::open("resources/background.hdr").unwrap(),
+        ))
+        .unwrap();
+        dbg!(dec.metadata());
+        let background = DynamicImage::from_decoder(dec).unwrap().to_rgba16();
+        let bgtexture = device.create_texture_with_data(
+            queue,
+            &TextureDescriptor {
+                label: Some("background"),
+                size: Extent3d {
+                    width: background.width(),
+                    height: background.height(),
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: TextureFormat::Rgba16Float,
+                usage: TextureUsages::TEXTURE_BINDING,
+                view_formats: &[TextureFormat::Rgba16Float],
+            },
+            Default::default(),
+            background.as_bytes(),
+        );
+        let bgtexture_sampler = device.create_sampler(&SamplerDescriptor::default());
+
         let compute_shader = device.create_shader_module(ShaderModuleDescriptor {
             label: None,
             source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("bvh.wgsl"))),
@@ -510,7 +539,7 @@ impl BVHComputePipeline {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba32Float,
+            format: wgpu::TextureFormat::Rgba16Float,
             usage: TextureUsages::TEXTURE_BINDING | TextureUsages::STORAGE_BINDING,
             view_formats: &[],
         });
@@ -524,7 +553,7 @@ impl BVHComputePipeline {
                     visibility: ShaderStages::COMPUTE,
                     ty: wgpu::BindingType::StorageTexture {
                         access: wgpu::StorageTextureAccess::WriteOnly,
-                        format: wgpu::TextureFormat::Rgba32Float,
+                        format: wgpu::TextureFormat::Rgba16Float,
                         view_dimension: wgpu::TextureViewDimension::D2,
                     },
                     count: None,
@@ -560,6 +589,22 @@ impl BVHComputePipeline {
                         has_dynamic_offset: false,
                         min_binding_size: None,
                     },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 5,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Sampler(SamplerBindingType::Filtering),
                     count: None,
                 },
             ],
@@ -625,6 +670,16 @@ impl BVHComputePipeline {
                     binding: 3,
                     resource: random_directions_buffer.as_entire_binding(),
                 },
+                BindGroupEntry {
+                    binding: 4,
+                    resource: BindingResource::TextureView(
+                        &bgtexture.create_view(&TextureViewDescriptor::default()),
+                    ),
+                },
+                BindGroupEntry {
+                    binding: 5,
+                    resource: BindingResource::Sampler(&bgtexture_sampler),
+                },
             ],
         });
 
@@ -678,14 +733,16 @@ struct Renderer {
 impl Renderer {
     fn new(
         device: &wgpu::Device,
+        queue: &wgpu::Queue,
         output_format: TextureFormat,
         bvh: BVH,
         width: u32,
         height: u32,
     ) -> Self {
-        let compute = BVHComputePipeline::new(device, &bvh, width, height);
+        let compute = BVHComputePipeline::new(device, queue, &bvh, width, height);
         let draw =
             BlitTextureToTexturePipeline::new(device, output_format, &compute.output_texture);
+
         Renderer {
             compute_pipeline: compute,
             draw_pipeline: draw,
@@ -783,7 +840,7 @@ impl WinitAppHandlerState {
         surface.configure(
             &device,
             &wgpu::SurfaceConfiguration {
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
                 format: output_format,
                 width,
                 height,
@@ -794,7 +851,7 @@ impl WinitAppHandlerState {
             },
         );
 
-        let renderer = Renderer::new(&device, output_format, args.bvh, width, height);
+        let renderer = Renderer::new(&device, &queue, output_format, args.bvh, width, height);
         let app = InitializedApp::new(
             width,
             height,
@@ -851,13 +908,12 @@ impl winit::application::ApplicationHandler for WinitAppHandler {
                 let mut app = app.lock().unwrap();
                 app.update();
                 let texture = app.surface.get_current_texture().unwrap();
-                timeit!(
-                    "render",
-                    app.renderer
-                        .render(&texture, &app.device, &app.queue, &app.camera)
-                );
+                app.renderer
+                    .render(&texture, &app.device, &app.queue, &app.camera);
                 app.window.pre_present_notify();
                 texture.present();
+
+                // This is the main call that will loop
                 app.window.request_redraw();
             }
             WindowEvent::KeyboardInput { event, .. } => {
@@ -902,7 +958,7 @@ fn main_wgpu(bvh: BVH, camera_position: Vec3, camera_target: Vec3) -> anyhow::Re
 }
 
 fn main() {
-    const SPHERES: usize = 1024;
+    const SPHERES: usize = 2048;
     // X is right
     // Y is forward
     // Z is up
