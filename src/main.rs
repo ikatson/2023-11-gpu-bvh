@@ -698,6 +698,47 @@ struct ComputePipelineUniforms {
     _pad_struct: [u8; 8],
 }
 
+struct LockedAppState<'a> {
+    app: &'a Mutex<AppState>,
+}
+
+impl winit::application::ApplicationHandler for LockedAppState<'_> {
+    fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
+        println!("resumed")
+    }
+
+    fn window_event(
+        &mut self,
+        event_loop: &winit::event_loop::ActiveEventLoop,
+        window_id: winit::window::WindowId,
+        event: WindowEvent,
+    ) {
+        match event {
+            WindowEvent::KeyboardInput { event, .. } => {
+                if let Code(KeyCode::KeyX) = event.physical_key {
+                    std::process::exit(0);
+                };
+                self.app.lock().unwrap().on_keyboard_event(event);
+            }
+            WindowEvent::MouseWheel {
+                device_id: _,
+                delta,
+                phase: _,
+            } => {
+                self.app.lock().unwrap().on_mouse_scroll(delta);
+            }
+            WindowEvent::PinchGesture {
+                device_id: _,
+                delta,
+                phase: _,
+            } => {
+                self.app.lock().unwrap().on_touchpad_magnify(delta);
+            }
+            _we => {}
+        }
+    }
+}
+
 async fn main_wgpu(bvh: BVH, camera_position: Vec3, camera_target: Vec3) -> anyhow::Result<()> {
     let el = EventLoop::new()?;
     let window = el.create_window(WindowAttributes::default())?;
@@ -780,7 +821,7 @@ async fn main_wgpu(bvh: BVH, camera_position: Vec3, camera_target: Vec3) -> anyh
             {
                 app.lock().unwrap().update();
             }
-            std::thread::sleep(Duration::from_millis(16));
+            std::thread::sleep(Duration::from_millis(8));
         });
 
         // Render thread. It will spawn at most at 60 fps by itself.
@@ -793,50 +834,7 @@ async fn main_wgpu(bvh: BVH, camera_position: Vec3, camera_target: Vec3) -> anyh
             });
         });
 
-        // Event loop.
-        el.run(|event, _target| {
-            // Have the closure take ownership of the resources.
-            // `event_loop.run` never returns, therefore we must do this to ensure
-            // the resources are properly cleaned up.
-            let _ = (&instance, &adapter);
-            match event {
-                Event::WindowEvent {
-                    window_id: _,
-                    event,
-                } => match event {
-                    WindowEvent::KeyboardInput { event, .. } => {
-                        if let Code(KeyCode::KeyX) = event.physical_key {
-                            std::process::exit(0);
-                        };
-                        app.lock().unwrap().on_keyboard_event(event);
-                    }
-                    WindowEvent::MouseWheel {
-                        device_id: _,
-                        delta,
-                        phase: _,
-                    } => {
-                        app.lock().unwrap().on_mouse_scroll(delta);
-                    }
-                    WindowEvent::PinchGesture {
-                        device_id: _,
-                        delta,
-                        phase: _,
-                    } => {
-                        app.lock().unwrap().on_touchpad_magnify(delta);
-                    }
-                    _we => {}
-                },
-                Event::NewEvents(StartCause::Init) => {
-                    // let m = monitor
-                    //     .video_modes()
-                    //     .find(|m| m.size() == mode.size())
-                    //     .unwrap();
-                    // window.set_fullscreen(Some(winit::window::Fullscreen::Exclusive(m)));
-                }
-                _e => {}
-            }
-        })
-        .expect("error running event loop");
+        el.run_app(&mut LockedAppState { app: &app }).unwrap();
     });
 
     Ok(())
