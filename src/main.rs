@@ -9,13 +9,14 @@ use std::{
     path::Path,
     sync::{
         atomic::{AtomicU8, Ordering},
-        Mutex,
+        Arc, Mutex,
     },
     time::{Duration, Instant},
 };
 use zerocopy::AsBytes;
 
 use wgpu::{
+    rwh::HasWindowHandle,
     util::{BufferInitDescriptor, DeviceExt},
     BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry,
     BufferUsages, CommandEncoderDescriptor, ComputePassDescriptor, ComputePipelineDescriptor,
@@ -31,7 +32,7 @@ use winit::{
         KeyCode,
         PhysicalKey::{self, Code},
     },
-    window::WindowAttributes,
+    window::{Window, WindowAttributes},
 };
 
 use bvh::*;
@@ -168,7 +169,7 @@ enum OtherEvent {
     TouchPadMagnify(f64),
 }
 
-struct AppState {
+struct InitializedApp {
     camera: PerspectiveCamera,
     pressed_keys: HashSet<winit::keyboard::PhysicalKey>,
     other_events: Vec<OtherEvent>,
@@ -178,9 +179,9 @@ struct AppState {
     original_camera: PerspectiveCamera,
 }
 
-impl AppState {
+impl InitializedApp {
     fn new(width: u32, height: u32, camera: PerspectiveCamera) -> Self {
-        AppState {
+        InitializedApp {
             original_camera: camera,
             camera,
             pressed_keys: Default::default(),
@@ -698,13 +699,129 @@ struct ComputePipelineUniforms {
     _pad_struct: [u8; 8],
 }
 
-struct LockedAppState<'a> {
-    app: &'a Mutex<AppState>,
+struct InitializingArgs {
+    camera_position: Vec3,
+    camera_target: Vec3,
+    bvh: BVH,
 }
 
-impl winit::application::ApplicationHandler for LockedAppState<'_> {
+#[derive(Default)]
+enum WinitAppHandlerState {
+    #[default]
+    Unknown,
+    Initializing(InitializingArgs),
+    Initialized(Arc<Mutex<InitializedApp>>),
+}
+
+impl WinitAppHandlerState {
+    fn initialize(&mut self, window: Window) {
+        let args = match std::mem::take(self) {
+            WinitAppHandlerState::Initializing(args) => args,
+            _ => panic!("bad state"),
+        };
+        let (width, height) = (window.inner_size().width, window.inner_size().height);
+        let camera = PerspectiveCamera::new(
+            args.camera_position,
+            (args.camera_target - args.camera_position).normalize(),
+            110.,
+            width as f32 / height as f32,
+        );
+        let app = InitializedApp::new(width, height, camera);
+        let app = Arc::new(Mutex::new(app));
+        *self = WinitAppHandlerState::Initialized(app.clone());
+
+        let instance = wgpu::Instance::default();
+        let surface = instance.create_surface(window).unwrap();
+
+        let (adapter, device, queue) = pollster::block_on(async {
+            let adapter = instance
+                .request_adapter(&wgpu::RequestAdapterOptions {
+                    power_preference: wgpu::PowerPreference::HighPerformance,
+                    force_fallback_adapter: false,
+                    compatible_surface: Some(&surface),
+                })
+                .await
+                .context("error requesting adapter")
+                .unwrap();
+
+            let (device, queue) = adapter
+                .request_device(
+                    &wgpu::DeviceDescriptor {
+                        ..Default::default()
+                    },
+                    None,
+                )
+                .await
+                .context("error requesting device")
+                .unwrap();
+
+            (adapter, device, queue)
+        });
+
+        let capabilities = dbg!(surface.get_capabilities(&adapter));
+        // let output_format = capabilities.formats[0];
+        let output_format = TextureFormat::Rgba16Float;
+        // let output_format = TextureFormat::Bgra8UnormSrgb;
+        // let output_format = TextureFormat::Bgra8Unorm;
+        surface.configure(
+            &device,
+            &wgpu::SurfaceConfiguration {
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                format: output_format,
+                width,
+                height,
+                present_mode: wgpu::PresentMode::AutoVsync,
+                alpha_mode: capabilities.alpha_modes[0],
+                view_formats: vec![],
+                desired_maximum_frame_latency: 2,
+            },
+        );
+
+        let renderer = Renderer::new(&device, output_format, args.bvh, width, height);
+
+        // "Game logic" thread
+        std::thread::spawn({
+            let app = app.clone();
+            move || loop {
+                app.lock().unwrap().update();
+                std::thread::sleep(Duration::from_millis(8));
+            }
+        });
+
+        // Render thread. It will spawn at most at 60 fps by itself.
+        std::thread::spawn({
+            move || loop {
+                let camera = { app.lock().unwrap().camera };
+                timeit!("render", {
+                    let txt = surface.get_current_texture().unwrap();
+                    renderer.render(&txt, &device, &queue, &camera);
+                    txt.present();
+                });
+            }
+        });
+    }
+}
+
+struct WinitAppHandler {
+    state: WinitAppHandlerState,
+}
+
+impl WinitAppHandler {
+    pub fn new(camera_position: Vec3, camera_target: Vec3, bvh: BVH) -> Self {
+        Self {
+            state: WinitAppHandlerState::Initializing(InitializingArgs {
+                camera_position,
+                camera_target,
+                bvh,
+            }),
+        }
+    }
+}
+
+impl winit::application::ApplicationHandler for WinitAppHandler {
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
-        println!("resumed")
+        let window = event_loop.create_window(Default::default()).unwrap();
+        self.state.initialize(window);
     }
 
     fn window_event(
@@ -713,130 +830,50 @@ impl winit::application::ApplicationHandler for LockedAppState<'_> {
         window_id: winit::window::WindowId,
         event: WindowEvent,
     ) {
+        let app = match &self.state {
+            WinitAppHandlerState::Unknown => panic!("unknown state"),
+            WinitAppHandlerState::Initializing(_) => return,
+            WinitAppHandlerState::Initialized(app) => app,
+        };
         match event {
             WindowEvent::KeyboardInput { event, .. } => {
                 if let Code(KeyCode::KeyX) = event.physical_key {
                     std::process::exit(0);
                 };
-                self.app.lock().unwrap().on_keyboard_event(event);
+                let mut app = app.lock().unwrap();
+                app.on_keyboard_event(event);
+                app.update();
             }
             WindowEvent::MouseWheel {
                 device_id: _,
                 delta,
                 phase: _,
             } => {
-                self.app.lock().unwrap().on_mouse_scroll(delta);
+                let mut app = app.lock().unwrap();
+                app.on_mouse_scroll(delta);
+                app.update();
             }
             WindowEvent::PinchGesture {
                 device_id: _,
                 delta,
                 phase: _,
             } => {
-                self.app.lock().unwrap().on_touchpad_magnify(delta);
+                let mut app = app.lock().unwrap();
+                app.on_touchpad_magnify(delta);
+                app.update();
             }
             _we => {}
         }
     }
 }
 
-async fn main_wgpu(bvh: BVH, camera_position: Vec3, camera_target: Vec3) -> anyhow::Result<()> {
+fn main_wgpu(bvh: BVH, camera_position: Vec3, camera_target: Vec3) -> anyhow::Result<()> {
     let el = EventLoop::new()?;
-    let window = el.create_window(WindowAttributes::default())?;
-    let monitor = window.primary_monitor().unwrap();
-    for mode in monitor.video_modes() {
-        println!("{:?}", mode);
-    }
-    // let mode = monitor
-    //     .video_modes()
-    //     .find(|m| m.size().width == 1280)
-    //     .context("can't find video mode with width == 1280")?;
-    //    const MAX_WIDTH: u32 = 1440;
-    const MAX_WIDTH: u32 = 800;
-    let mode = monitor
-        .video_modes()
-        .reduce(|a, b| {
-            if a.size().width < b.size().width && b.size().width <= MAX_WIDTH {
-                b
-            } else {
-                a
-            }
-        })
-        .context("can't find video mode with width == 1280")?;
-    let width = mode.size().width;
-    let height = mode.size().height;
-
-    let camera = PerspectiveCamera::new(
+    el.run_app(&mut WinitAppHandler::new(
         camera_position,
-        (camera_target - camera_position).normalize(),
-        110.,
-        width as f32 / height as f32,
-    );
-
-    let instance = wgpu::Instance::default();
-    let surface = instance.create_surface(&window)?;
-    let adapter = instance
-        .request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            force_fallback_adapter: false,
-            compatible_surface: Some(&surface),
-        })
-        .await
-        .context("error requesting adapter")?;
-
-    let (device, queue) = adapter
-        .request_device(
-            &wgpu::DeviceDescriptor {
-                ..Default::default()
-            },
-            None,
-        )
-        .await
-        .context("error requesting device")?;
-
-    let capabilities = dbg!(surface.get_capabilities(&adapter));
-    // let output_format = capabilities.formats[0];
-    let output_format = TextureFormat::Rgba16Float;
-    // let output_format = TextureFormat::Bgra8UnormSrgb;
-    // let output_format = TextureFormat::Bgra8Unorm;
-    surface.configure(
-        &device,
-        &wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: output_format,
-            width,
-            height,
-            present_mode: wgpu::PresentMode::AutoVsync,
-            alpha_mode: capabilities.alpha_modes[0],
-            view_formats: vec![],
-            desired_maximum_frame_latency: 2,
-        },
-    );
-
-    let app = Mutex::new(AppState::new(width, height, camera));
-    let renderer = Renderer::new(&device, output_format, bvh, width, height);
-
-    std::thread::scope(|s| {
-        // "Game logic" thread
-        s.spawn(|| loop {
-            {
-                app.lock().unwrap().update();
-            }
-            std::thread::sleep(Duration::from_millis(8));
-        });
-
-        // Render thread. It will spawn at most at 60 fps by itself.
-        s.spawn(|| loop {
-            let camera = { app.lock().unwrap().camera };
-            timeit!("render", {
-                let txt = surface.get_current_texture().unwrap();
-                renderer.render(&txt, &device, &queue, &camera);
-                txt.present();
-            });
-        });
-
-        el.run_app(&mut LockedAppState { app: &app }).unwrap();
-    });
-
+        camera_target,
+        bvh,
+    ))?;
     Ok(())
 }
 
@@ -860,5 +897,5 @@ fn main() {
     let camera_position = Vec3::new(-7., 6., 5.);
     let camera_target = Vec3::new(0., 0., 0.);
 
-    pollster::block_on(main_wgpu(bvh, camera_position, camera_target)).unwrap();
+    main_wgpu(bvh, camera_position, camera_target).unwrap();
 }
