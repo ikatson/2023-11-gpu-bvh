@@ -719,6 +719,7 @@ impl WinitAppHandlerState {
             WinitAppHandlerState::Initializing(args) => args,
             _ => panic!("bad state"),
         };
+        let window = Arc::new(window);
         let (width, height) = (window.inner_size().width, window.inner_size().height);
         let camera = PerspectiveCamera::new(
             args.camera_position,
@@ -731,7 +732,7 @@ impl WinitAppHandlerState {
         *self = WinitAppHandlerState::Initialized(app.clone());
 
         let instance = wgpu::Instance::default();
-        let surface = instance.create_surface(window).unwrap();
+        let surface = instance.create_surface(window.clone()).unwrap();
 
         let (adapter, device, queue) = pollster::block_on(async {
             let adapter = instance
@@ -795,6 +796,7 @@ impl WinitAppHandlerState {
                 timeit!("render", {
                     let txt = surface.get_current_texture().unwrap();
                     renderer.render(&txt, &device, &queue, &camera);
+                    window.pre_present_notify();
                     txt.present();
                 });
             }
@@ -836,6 +838,9 @@ impl winit::application::ApplicationHandler for WinitAppHandler {
             WinitAppHandlerState::Initialized(app) => app,
         };
         match event {
+            WindowEvent::CloseRequested => {
+                event_loop.exit();
+            }
             WindowEvent::KeyboardInput { event, .. } => {
                 if let Code(KeyCode::KeyX) = event.physical_key {
                     std::process::exit(0);
