@@ -194,7 +194,44 @@ fn lambert(light_direction: vec3f, normal: vec3f) -> f32 {
     return max(dot(-light_direction, normal), 0.);
 }
 
+fn hsv2rgb(hsv: vec3<f32>) -> vec3<f32> {
+    let h = hsv.x;
+    let s = hsv.y;
+    let v = hsv.z;
+
+    let c = v * s; // Chroma
+    let h_prime = h * 6.0;
+    let x = c * (1.0 - abs(fract(h_prime) * 2.0 - 1.0));
+
+    var rgb = vec3<f32>(0.0, 0.0, 0.0);
+
+    if (h_prime < 1.0) {
+        rgb = vec3(c, x, 0.0);
+    } else if (h_prime < 2.0) {
+        rgb = vec3(x, c, 0.0);
+    } else if (h_prime < 3.0) {
+        rgb = vec3(0.0, c, x);
+    } else if (h_prime < 4.0) {
+        rgb = vec3(0.0, x, c);
+    } else if (h_prime < 5.0) {
+        rgb = vec3(x, 0.0, c);
+    } else {
+        rgb = vec3(c, 0.0, x);
+    }
+
+    let m = v - c;
+    return rgb + vec3(m, m, m);
+}
+
+
 fn get_sphere_color(id: u32) -> vec3f {
+    // let hue = randomColor(id).x;
+    // let saturation = 1.;
+    // let value =randomColor(id).z;
+
+    // let color = hsv2rgb(vec3(hue, saturation, value));
+    // return color;
+
     return randomColor(id);
 }
 
@@ -203,7 +240,7 @@ fn get_color(ray: Ray, i: Intersection) -> vec4f {
 
     // Point light
     let light_direction = LIGHT_DIRECTION;
-    var light_intensity = 16.;
+    var light_intensity = 4.;
 
     // let new_ray = Ray(i.coord - light_direction * 0.1, -light_direction);
     // let new_hit = bvh_intersect(new_ray);
@@ -257,27 +294,29 @@ fn occlusion_bvh(i: Intersection, color: vec3f, pixel: vec2<u32>) -> vec3f {
 fn bvh_color(ray: Ray, pixel: vec2<u32>) -> vec4f {
     let i = bvh_intersect(ray);
     if i.is_hit {
-        // var color = get_color(ray, i);
+        var color = get_color(ray, i);
 
         // Relfectivity.
-        // let new_direction = normalize(reflect(ray.direction, i.normal));
-        // let new_ray = Ray(i.coord + new_direction * 0.01, new_direction);
-        // let new_hit = bvh_intersect(new_ray);
-        // if new_hit.is_hit {
-        //     color += get_color(new_ray, new_hit);
-        // }
+        let new_direction = normalize(reflect(ray.direction, i.normal));
+        let new_ray = Ray(i.coord + new_direction * 0.01, new_direction);
+        let new_hit = bvh_intersect(new_ray);
+        if new_hit.is_hit {
+            color += get_color(new_ray, new_hit);
+        }
 
         // Shadow.
-        // let shadow_ray_direction = -LIGHT_DIRECTION;
-        // let shadow_ray = Ray(i.coord + shadow_ray_direction * 0.01, shadow_ray_direction);
-        // let shadow_hit = bvh_intersect(shadow_ray);
-        // if shadow_hit.is_hit {
-        //     color *= 0.1;
-        // }
+        let shadow_ray_direction = -LIGHT_DIRECTION;
+        let shadow_ray = Ray(i.coord + shadow_ray_direction * 0.01, shadow_ray_direction);
+        let shadow_hit = bvh_intersect(shadow_ray);
+        if shadow_hit.is_hit {
+            color *= 0.1;
+        }
 
-        let albedo = get_sphere_color(i.index);
+        return vec4(color);
 
-        return vec4(occlusion_bvh(i, albedo.xyz, pixel), 1.);
+        // let albedo = get_sphere_color(i.index);
+
+        // return vec4(occlusion_bvh(i, albedo.xyz, pixel), 1.);
     }
     return vec4(0.);
 }

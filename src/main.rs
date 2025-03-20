@@ -566,7 +566,7 @@ impl BVHComputePipeline {
         });
 
         let random_directions_buffer = {
-            let mut random_directions = vec![0f32; 16 * 4];
+            let mut random_directions = vec![0f32; 4 * 4];
             rand::thread_rng()
                 .try_fill(&mut random_directions[..])
                 .unwrap();
@@ -756,6 +756,7 @@ async fn main_wgpu(bvh: BVH, camera_position: Vec3, camera_target: Vec3) -> anyh
     // let output_format = capabilities.formats[0];
     let output_format = TextureFormat::Rgba16Float;
     // let output_format = TextureFormat::Bgra8UnormSrgb;
+    // let output_format = TextureFormat::Bgra8Unorm;
     surface.configure(
         &device,
         &wgpu::SurfaceConfiguration {
@@ -842,7 +843,7 @@ async fn main_wgpu(bvh: BVH, camera_position: Vec3, camera_target: Vec3) -> anyh
 }
 
 fn main() {
-    const SPHERES: usize = 512;
+    const SPHERES: usize = 1024;
     // X is right
     // Y is forward
     // Z is up
