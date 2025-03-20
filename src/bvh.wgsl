@@ -295,6 +295,19 @@ fn occlusion_bvh(i: Intersection, color: vec3f, pixel: vec2<u32>) -> vec3f {
     return color * totalIntensity;
 }
 
+fn sample_background(ray: Ray) -> vec3<f32> {
+    let longitude = atan2(ray.direction.y, ray.direction.x);  // -π to π
+    let latitude  = asin(clamp(ray.direction.z, -1.0, 1.0));  // -π/2 to π/2
+    let u = (longitude / (2.0 * PI)) + 0.5;
+    let v = 0.5 - (latitude / PI); // Flip Y if needed
+    let texSize = textureDimensions(bgColorTexture);
+
+    let texCoord = vec2(u, v);
+    let pixelCoord = vec2<i32>(vec2<f32>(u, v) * vec2<f32>(texSize));
+    let texel = textureLoad(bgColorTexture, pixelCoord, 0);
+    return texel.rgb;
+}
+
 fn bvh_color(ray: Ray, pixel: vec2<u32>) -> vec4f {
     let i = bvh_intersect(ray);
     if i.is_hit {
@@ -305,16 +318,18 @@ fn bvh_color(ray: Ray, pixel: vec2<u32>) -> vec4f {
         let new_ray = Ray(i.coord + new_direction * 0.01, new_direction);
         let new_hit = bvh_intersect(new_ray);
         if new_hit.is_hit {
-            color += get_color(new_ray, new_hit);
+            color += get_color(new_ray, new_hit) * 0.1;
+        } else {
+            color += vec4(sample_background(new_ray), 1.) * 0.1;
         }
 
         // Shadow.
-        let shadow_ray_direction = -LIGHT_DIRECTION;
-        let shadow_ray = Ray(i.coord + shadow_ray_direction * 0.01, shadow_ray_direction);
-        let shadow_hit = bvh_intersect(shadow_ray);
-        if shadow_hit.is_hit {
-            color *= 0.1;
-        }
+        // let shadow_ray_direction = -LIGHT_DIRECTION;
+        // let shadow_ray = Ray(i.coord + shadow_ray_direction * 0.01, shadow_ray_direction);
+        // let shadow_hit = bvh_intersect(shadow_ray);
+        // if shadow_hit.is_hit {
+        //     color *= 0.1;
+        // }
 
         return vec4(color);
 
@@ -324,8 +339,15 @@ fn bvh_color(ray: Ray, pixel: vec2<u32>) -> vec4f {
     }
 
     // sample background
-    let bg_color = textureLoad(bgColorTexture, pixel, 0);
-    return vec4(vec3(bg_color.rgb), 1.);
+    return vec4(sample_background(ray), 1.);
+    // let longitude = atan2(ray.direction.y, ray.direction.x);  // -π to π
+    // let latitude  = asin(clamp(ray.direction.z, -1.0, 1.0));  // -π/2 to π/2
+    // let u = (longitude / (2.0 * PI)) + 0.5;
+    // let v = 0.5 - (latitude / PI); // Flip Y if needed
+    // let texSize = textureDimensions(bgColorTexture);
+    // let pixelCoord = vec2<i32>(vec2<f32>(u, v) * vec2<f32>(texSize));
+    // let bg_color = textureLoad(bgColorTexture, pixelCoord, 0);
+    // return vec4(vec3(bg_color.rgb), 1.);
 }
 
 fn stack_push(current_len: u32, node_id: u32, op: u32) -> u32 {
