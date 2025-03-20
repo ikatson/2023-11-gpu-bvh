@@ -20,14 +20,14 @@ use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
     BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry,
     BufferUsages, CommandEncoderDescriptor, ComputePassDescriptor, ComputePipelineDescriptor,
-    Extent3d, FragmentState, PipelineLayoutDescriptor, PrimitiveState, RenderPassColorAttachment,
-    RenderPassDescriptor, RenderPipelineDescriptor, SamplerDescriptor, ShaderModuleDescriptor,
-    ShaderStages, TextureDescriptor, TextureFormat, TextureUsages, TextureViewDescriptor,
-    VertexAttribute, VertexBufferLayout, VertexState,
+    Device, Extent3d, FragmentState, PipelineLayoutDescriptor, PrimitiveState, Queue,
+    RenderPassColorAttachment, RenderPassDescriptor, RenderPipelineDescriptor, SamplerDescriptor,
+    ShaderModuleDescriptor, ShaderStages, Surface, TextureDescriptor, TextureFormat, TextureUsages,
+    TextureViewDescriptor, VertexAttribute, VertexBufferLayout, VertexState,
 };
 use winit::{
     event::{Event, MouseScrollDelta, StartCause, WindowEvent},
-    event_loop::EventLoop,
+    event_loop::{ControlFlow, EventLoop},
     keyboard::{
         KeyCode,
         PhysicalKey::{self, Code},
@@ -177,10 +177,24 @@ struct InitializedApp {
     screen_width: u32,
     screen_height: u32,
     original_camera: PerspectiveCamera,
+    window: Arc<Window>,
+    renderer: Renderer,
+    surface: Surface<'static>,
+    device: Device,
+    queue: Queue,
 }
 
 impl InitializedApp {
-    fn new(width: u32, height: u32, camera: PerspectiveCamera) -> Self {
+    fn new(
+        width: u32,
+        height: u32,
+        camera: PerspectiveCamera,
+        window: Arc<Window>,
+        renderer: Renderer,
+        surface: Surface<'static>,
+        device: Device,
+        queue: Queue,
+    ) -> Self {
         InitializedApp {
             original_camera: camera,
             camera,
@@ -189,6 +203,11 @@ impl InitializedApp {
             screen_height: height,
             screen_width: width,
             other_events: Default::default(),
+            window,
+            renderer,
+            device,
+            surface,
+            queue,
         }
     }
     fn on_keyboard_event(&mut self, event: winit::event::KeyEvent) {
@@ -203,9 +222,11 @@ impl InitializedApp {
         match event.state {
             winit::event::ElementState::Pressed => {
                 self.pressed_keys.insert(key);
+                self.update();
             }
             winit::event::ElementState::Released => {
                 self.pressed_keys.remove(&key);
+                self.update();
             }
         }
     }
@@ -218,11 +239,13 @@ impl InitializedApp {
     }
 
     fn on_mouse_scroll(&mut self, ev: MouseScrollDelta) {
-        self.other_events.push(OtherEvent::MouseScroll(ev))
+        self.other_events.push(OtherEvent::MouseScroll(ev));
+        self.update();
     }
 
     fn on_touchpad_magnify(&mut self, delta: f64) {
         self.other_events.push(OtherEvent::TouchPadMagnify(delta));
+        self.update();
     }
 
     fn update(&mut self) {
@@ -727,9 +750,6 @@ impl WinitAppHandlerState {
             110.,
             width as f32 / height as f32,
         );
-        let app = InitializedApp::new(width, height, camera);
-        let app = Arc::new(Mutex::new(app));
-        *self = WinitAppHandlerState::Initialized(app.clone());
 
         let instance = wgpu::Instance::default();
         let surface = instance.create_surface(window.clone()).unwrap();
@@ -779,28 +799,40 @@ impl WinitAppHandlerState {
         );
 
         let renderer = Renderer::new(&device, output_format, args.bvh, width, height);
+        let app = InitializedApp::new(
+            width,
+            height,
+            camera,
+            window.clone(),
+            renderer,
+            surface,
+            device,
+            queue,
+        );
+        let app = Arc::new(Mutex::new(app));
+        *self = WinitAppHandlerState::Initialized(app.clone());
 
         // "Game logic" thread
-        std::thread::spawn({
-            let app = app.clone();
-            move || loop {
-                app.lock().unwrap().update();
-                std::thread::sleep(Duration::from_millis(8));
-            }
-        });
+        // std::thread::spawn({
+        //     let app = app.clone();
+        //     move || loop {
+        //         app.lock().unwrap().update();
+        //         std::thread::sleep(Duration::from_millis(8));
+        //     }
+        // });
 
         // Render thread. It will spawn at most at 60 fps by itself.
-        std::thread::spawn({
-            move || loop {
-                let camera = { app.lock().unwrap().camera };
-                timeit!("render", {
-                    let txt = surface.get_current_texture().unwrap();
-                    renderer.render(&txt, &device, &queue, &camera);
-                    window.pre_present_notify();
-                    txt.present();
-                });
-            }
-        });
+        // std::thread::spawn({
+        //     move || loop {
+        //         let camera = { app.lock().unwrap().camera };
+        //         timeit!("render", {
+        //             let txt = surface.get_current_texture().unwrap();
+        //             renderer.render(&txt, &device, &queue, &camera);
+        //             window.pre_present_notify();
+        //             txt.present();
+        //         });
+        //     }
+        // });
     }
 }
 
@@ -841,6 +873,19 @@ impl winit::application::ApplicationHandler for WinitAppHandler {
             WindowEvent::CloseRequested => {
                 event_loop.exit();
             }
+            WindowEvent::RedrawRequested => {
+                let mut app = app.lock().unwrap();
+                app.update();
+                let texture = app.surface.get_current_texture().unwrap();
+                timeit!(
+                    "render",
+                    app.renderer
+                        .render(&texture, &app.device, &app.queue, &app.camera)
+                );
+                app.window.pre_present_notify();
+                texture.present();
+                app.window.request_redraw();
+            }
             WindowEvent::KeyboardInput { event, .. } => {
                 if let Code(KeyCode::KeyX) = event.physical_key {
                     std::process::exit(0);
@@ -848,6 +893,7 @@ impl winit::application::ApplicationHandler for WinitAppHandler {
                 let mut app = app.lock().unwrap();
                 app.on_keyboard_event(event);
                 app.update();
+                app.window.request_redraw();
             }
             WindowEvent::MouseWheel {
                 device_id: _,
@@ -857,6 +903,7 @@ impl winit::application::ApplicationHandler for WinitAppHandler {
                 let mut app = app.lock().unwrap();
                 app.on_mouse_scroll(delta);
                 app.update();
+                app.window.request_redraw();
             }
             WindowEvent::PinchGesture {
                 device_id: _,
@@ -866,6 +913,7 @@ impl winit::application::ApplicationHandler for WinitAppHandler {
                 let mut app = app.lock().unwrap();
                 app.on_touchpad_magnify(delta);
                 app.update();
+                app.window.request_redraw();
             }
             _we => {}
         }
