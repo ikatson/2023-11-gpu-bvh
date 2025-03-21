@@ -488,6 +488,7 @@ struct BVHComputePipeline {
     uniform_buffer: wgpu::Buffer,
     width: u32,
     height: u32,
+    start: Instant,
     random_colors: wgpu::Buffer,
     bg: wgpu::BindGroup,
 }
@@ -714,6 +715,7 @@ impl BVHComputePipeline {
             random_colors,
             bg,
             width,
+            start: Instant::now(),
             height,
         }
     }
@@ -726,6 +728,7 @@ impl BVHComputePipeline {
             aspect: camera.aspect,
             width: self.width,
             height: self.height,
+            time: self.start.elapsed().as_millis() as u32,
             ..Default::default()
         };
 
@@ -794,7 +797,9 @@ struct ComputePipelineUniforms {
 
     width: u32,
     height: u32,
-    _pad_struct: [u8; 8],
+
+    time: u32,
+    _pad_struct: [u8; 4],
 }
 
 struct InitializingArgs {

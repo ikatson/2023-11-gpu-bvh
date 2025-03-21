@@ -152,12 +152,7 @@ fn main() {
     }
 
     cmd.copy_texture_to_buffer(
-        TexelCopyTextureInfo {
-            texture: &output_texture,
-            mip_level: 0,
-            origin: wgpu::Origin3d::ZERO,
-            aspect: wgpu::TextureAspect::All,
-        },
+        output_texture.as_image_copy(),
         TexelCopyBufferInfo {
             buffer: &outbuf,
             layout: wgpu::TexelCopyBufferLayout {
