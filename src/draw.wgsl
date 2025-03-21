@@ -54,8 +54,8 @@ fn main_fs(
 
     const DISPLAY_RANGE: f32 = 1.5;
 
-    return vec4(tonemap_reinhard(color.rgb), 1.) * DISPLAY_RANGE;
+    // return vec4(tonemap_reinhard(color.rgb), 1.) * DISPLAY_RANGE;
     // return vec4(tonemap_aces(color.rgb), 1.) * DISPLAY_RANGE;
     // return vec4(tonemap_hdr(color.rgb), 1.) * DISPLAY_RANGE;
-    // return color;
+    return color;
 }

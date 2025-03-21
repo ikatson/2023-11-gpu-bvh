@@ -325,14 +325,14 @@ fn bvh_color(ray: Ray, pixel: vec2<u32>) -> vec4f {
         var color = get_color(ray, i);
 
         // Relfectivity.
-        let new_direction = normalize(reflect(ray.direction, i.normal));
-        let new_ray = Ray(i.coord + new_direction * 0.01, new_direction);
-        let new_hit = bvh_intersect(new_ray);
-        if new_hit.is_hit {
-            color += get_color(new_ray, new_hit) * 0.1;
-        } else {
-            color += vec4(sample_background(new_ray), 1.) * 0.1;
-        }
+        // let new_direction = normalize(reflect(ray.direction, i.normal));
+        // let new_ray = Ray(i.coord + new_direction * 0.01, new_direction);
+        // let new_hit = bvh_intersect(new_ray);
+        // if new_hit.is_hit {
+        //     color += get_color(new_ray, new_hit) * 0.1;
+        // } else {
+        //     color += vec4(sample_background(new_ray), 1.) * 0.1;
+        // }
 
         // Shadow.
         // let shadow_ray_direction = -LIGHT_DIRECTION;
