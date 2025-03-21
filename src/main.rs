@@ -1,5 +1,5 @@
 use anyhow::Context;
-use image::{codecs::hdr::HdrDecoder, DynamicImage};
+use image::{codecs::hdr::HdrDecoder, DynamicImage, ImageDecoder, ImageReader};
 use rand::{Rng, RngCore};
 
 use std::{
@@ -24,8 +24,8 @@ use wgpu::{
     ComputePipelineDescriptor, Device, Extent3d, FragmentState, PipelineLayoutDescriptor,
     PrimitiveState, Queue, RenderPassColorAttachment, RenderPassDescriptor,
     RenderPipelineDescriptor, SamplerBindingType, SamplerDescriptor, ShaderModuleDescriptor,
-    ShaderStages, Surface, TextureDescriptor, TextureFormat, TextureUsages, TextureViewDescriptor,
-    TextureViewDimension, VertexAttribute, VertexBufferLayout, VertexState,
+    ShaderStages, Surface, Texture, TextureDescriptor, TextureFormat, TextureUsages,
+    TextureViewDescriptor, TextureViewDimension, VertexAttribute, VertexBufferLayout, VertexState,
 };
 use winit::{
     event::{Event, MouseScrollDelta, StartCause, WindowEvent},
@@ -483,35 +483,39 @@ struct BVHComputePipeline {
     bg: wgpu::BindGroup,
 }
 
+fn load_texture(device: &wgpu::Device, queue: &wgpu::Queue, filename: &str) -> Texture {
+    let img = ImageReader::open(filename)
+        .unwrap()
+        .decode()
+        .unwrap()
+        .to_rgba32f();
+    let texture = device.create_texture_with_data(
+        queue,
+        &TextureDescriptor {
+            label: Some(filename),
+            size: Extent3d {
+                width: img.width(),
+                height: img.height(),
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: TextureFormat::Rgba32Float,
+            usage: TextureUsages::TEXTURE_BINDING,
+            view_formats: &[TextureFormat::Rgba32Float],
+        },
+        Default::default(),
+        img.as_bytes(),
+    );
+    texture
+}
+
 impl BVHComputePipeline {
     fn new(device: &wgpu::Device, queue: &wgpu::Queue, bvh: &BVH, width: u32, height: u32) -> Self {
-        let dec = HdrDecoder::new(std::io::BufReader::new(
-            std::fs::File::open("resources/background.hdr").unwrap(),
-        ))
-        .unwrap();
-        dbg!(dec.metadata());
-        let background = DynamicImage::from_decoder(dec).unwrap();
-        dbg!(background.color());
-        let background = background.to_rgba32f();
-        let bgtexture = device.create_texture_with_data(
-            queue,
-            &TextureDescriptor {
-                label: Some("background"),
-                size: Extent3d {
-                    width: background.width(),
-                    height: background.height(),
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: TextureFormat::Rgba32Float,
-                usage: TextureUsages::TEXTURE_BINDING,
-                view_formats: &[TextureFormat::Rgba32Float],
-            },
-            Default::default(),
-            background.as_bytes(),
-        );
+        let bgtexture = load_texture(device, queue, "resources/background.hdr");
+        let bgtexture_irradiance =
+            load_texture(device, queue, "resources/background.hdr.irradiance.exr");
 
         let compute_shader = device.create_shader_module(ShaderModuleDescriptor {
             label: None,
@@ -592,8 +596,20 @@ impl BVHComputePipeline {
                     },
                     count: None,
                 },
+                // Background
                 BindGroupLayoutEntry {
                     binding: 4,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        view_dimension: TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                // Background irradiance
+                BindGroupLayoutEntry {
+                    binding: 5,
                     visibility: ShaderStages::COMPUTE,
                     ty: wgpu::BindingType::Texture {
                         sample_type: wgpu::TextureSampleType::Float { filterable: false },
@@ -626,7 +642,7 @@ impl BVHComputePipeline {
         });
 
         let random_directions_buffer = {
-            let mut random_directions = vec![0f32; 4 * 4];
+            let mut random_directions = [0f32; 4 * 4];
             rand::thread_rng()
                 .try_fill(&mut random_directions[..])
                 .unwrap();
@@ -669,6 +685,12 @@ impl BVHComputePipeline {
                     binding: 4,
                     resource: BindingResource::TextureView(
                         &bgtexture.create_view(&TextureViewDescriptor::default()),
+                    ),
+                },
+                BindGroupEntry {
+                    binding: 5,
+                    resource: BindingResource::TextureView(
+                        &bgtexture_irradiance.create_view(&TextureViewDescriptor::default()),
                     ),
                 },
             ],

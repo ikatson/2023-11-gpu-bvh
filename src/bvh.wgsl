@@ -65,8 +65,7 @@ var<storage, read> random_colors: array<vec4f>;
 var<storage, read> random_directions: array<vec3f>;
 
 @group(1) @binding(4) var bgColorTexture : texture_2d<f32>;
-@group(1) @binding(5) var bgColorSampler : sampler;
-
+@group(1) @binding(5) var bgIrradianceTexture : texture_2d<f32>;
 
 const FLAG_EMPTY: u32 = 0u;
 const FLAG_MERGE: u32 = 1u;
@@ -244,7 +243,7 @@ fn get_color(ray: Ray, i: Intersection) -> vec4f {
 
     // Point light
     let light_direction = LIGHT_DIRECTION;
-    var light_intensity = 1.;
+    var light_intensity = sample_irradiance(i.normal);
 
     // let new_ray = Ray(i.coord - light_direction * 0.1, -light_direction);
     // let new_hit = bvh_intersect(new_ray);
@@ -261,7 +260,8 @@ fn get_color(ray: Ray, i: Intersection) -> vec4f {
     // let radiance = vec3(1.);
 
     // // let color = CookTorranceBRDF(albedo, roughness, metallic, ray.direction, i.normal, light_direction, radiance) * light_intensity;
-    let color = albedo * lambert(light_direction, i.normal) * light_intensity;
+    // let color = albedo * lambert(light_direction, i.normal) * light_intensity;
+    let color = albedo * light_intensity;
     return vec4(color, 1.);
 }
 
@@ -295,15 +295,26 @@ fn occlusion_bvh(i: Intersection, color: vec3f, pixel: vec2<u32>) -> vec3f {
     return color * totalIntensity;
 }
 
-fn sample_background(ray: Ray) -> vec3<f32> {
-    let longitude = atan2(ray.direction.y, ray.direction.x);  // -π to π
-    let latitude  = asin(clamp(ray.direction.z, -1.0, 1.0));  // -π/2 to π/2
+fn direction_to_uv(direction: vec3<f32>) -> vec2<f32> {
+    let longitude = atan2(direction.y, direction.x);
+    let latitude  = asin(clamp(direction.z, -1.0, 1.0));
     let u = (longitude / (2.0 * PI)) + 0.5;
-    let v = 0.5 - (latitude / PI); // Flip Y if needed
-    let texSize = textureDimensions(bgColorTexture);
+    let v = 0.5 - (latitude / PI);
+    return vec2(u, v);
+}
 
-    let texCoord = vec2(u, v);
-    let pixelCoord = vec2<i32>(vec2<f32>(u, v) * vec2<f32>(texSize));
+fn sample_irradiance(direction: vec3<f32>) -> vec3<f32> {
+    let texSize = textureDimensions(bgIrradianceTexture);
+    let texCoord = direction_to_uv(direction);
+    let pixelCoord = vec2<i32>(texCoord * vec2<f32>(texSize));
+    let texel = textureLoad(bgIrradianceTexture, pixelCoord, 0);
+    return texel.rgb;
+}
+
+fn sample_background(ray: Ray) -> vec3<f32> {
+    let texSize = textureDimensions(bgColorTexture);
+    let texCoord = direction_to_uv(ray.direction);
+    let pixelCoord = vec2<i32>(texCoord * vec2<f32>(texSize));
     let texel = textureLoad(bgColorTexture, pixelCoord, 0);
     return texel.rgb;
 }
