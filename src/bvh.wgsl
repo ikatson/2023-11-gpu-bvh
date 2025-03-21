@@ -103,196 +103,20 @@ fn aabb_tnear(node_id: u32, ray: Ray) -> f32 {
     }
 }
 
-// UE4Falloff function
-fn UE4Falloff(distance: f32, lightRadius: f32) -> f32 {
-    let nominator = clamp(1.0 - pow(distance / lightRadius, 4.0), 0.0, 1.0);
-    return (nominator * nominator) / (distance * distance + 1.0);
-}
-
-// UE4NDF function
-fn UE4NDF(NdotH: f32, roughness: f32) -> f32 {
-    let a = roughness * roughness;
-    let a2 = a * a;
-    let NdotH2 = NdotH * NdotH;
-
-    let num = a2;
-    var denom = (NdotH2 * (a2 - 1.0) + 1.0);
-    denom = PI * denom * denom;
-
-    return num / denom;
-}
-
-// GeometrySchlickGGX function
-fn GeometrySchlickGGX(NdotV: f32, roughness: f32) -> f32 {
-    let r = (roughness + 1.0);
-    let k = (r * r) / 8.0;
-
-    let num = NdotV;
-    let denom = NdotV * (1.0 - k) + k;
-
-    return num / denom;
-}
-
-// GeometrySmith function
-fn GeometrySmith(NdotV: f32, NdotL: f32, roughness: f32) -> f32 {
-    let ggx2 = GeometrySchlickGGX(NdotV, roughness);
-    let ggx1 = GeometrySchlickGGX(NdotL, roughness);
-    return ggx1 * ggx2;
-}
-
-// fresnelSchlick function with scalar input
-fn fresnelSchlickScalar(HdotV: f32, F0: f32) -> f32 {
-    return F0 + (1.0 - F0) * pow(1.0 - HdotV, 5.0);
-}
-
-// fresnelSchlick function with vector input
-fn fresnelSchlick(albedo: vec3<f32>, metallic: f32, HdotV: f32) -> vec3<f32> {
-    var F0 = vec3<f32>(0.04);
-    F0 = mix(F0, albedo, metallic);
-
-    return vec3<f32>(fresnelSchlickScalar(HdotV, F0.r), fresnelSchlickScalar(HdotV, F0.g), fresnelSchlickScalar(HdotV, F0.b));
-}
-
-// CookTorranceBRDF function
-fn CookTorranceBRDF(
-    albedo: vec3<f32>, roughness: f32, metallic: f32,
-    V: vec3<f32>, normal: vec3<f32>, L: vec3<f32>, radiance: vec3<f32>
-) -> vec3<f32> {
-    let H = normalize(V + L);
-    let N = normal;
-
-    let NdotL = max(dot(N, L), 0.0);
-    let NdotH = max(dot(N, H), 0.0);
-    let NdotV = max(dot(N, V), 0.0);
-    let HdotV = max(dot(H, V), 0.0);
-
-    let NDF = UE4NDF(NdotH, roughness);
-
-    let G = GeometrySmith(NdotV, NdotL, roughness);
-    let F = fresnelSchlick(albedo, metallic, HdotV);
-
-    var kD = vec3<f32>(1.0) - F;
-    kD *= 1.0 - metallic;
-
-    let numerator = NDF * G * F;
-    let denominator = 4.0 * NdotV * NdotL;
-    let specular = numerator / max(denominator, 0.001);
-
-    return (kD * albedo / PI + specular) * radiance * NdotL;
-}
-
-// toneMap function
-fn toneMap(color: vec3<f32>) -> vec3<f32> {
-    var c = color / (color + vec3<f32>(1.0));
-    c = pow(color, vec3<f32>(1.0 / 2.2));
-    return c;
-}
-
 // Function to generate a random color based on a u32 seed
 fn randomColor(seed: u32) -> vec3<f32> {
     return random_colors[seed].xyz;
 }
 
-fn lambert(light_direction: vec3f, normal: vec3f) -> f32 {
-    return max(dot(-light_direction, normal), 0.);
-}
-
-fn hsv2rgb(hsv: vec3<f32>) -> vec3<f32> {
-    let h = hsv.x;
-    let s = hsv.y;
-    let v = hsv.z;
-
-    let c = v * s; // Chroma
-    let h_prime = h * 6.0;
-    let x = c * (1.0 - abs(fract(h_prime) * 2.0 - 1.0));
-
-    var rgb = vec3<f32>(0.0, 0.0, 0.0);
-
-    if (h_prime < 1.0) {
-        rgb = vec3(c, x, 0.0);
-    } else if (h_prime < 2.0) {
-        rgb = vec3(x, c, 0.0);
-    } else if (h_prime < 3.0) {
-        rgb = vec3(0.0, c, x);
-    } else if (h_prime < 4.0) {
-        rgb = vec3(0.0, x, c);
-    } else if (h_prime < 5.0) {
-        rgb = vec3(x, 0.0, c);
-    } else {
-        rgb = vec3(c, 0.0, x);
-    }
-
-    let m = v - c;
-    return rgb + vec3(m, m, m);
-}
-
-
 fn get_sphere_color(id: u32) -> vec3f {
-    // let hue = randomColor(id).x;
-    // let saturation = 1.;
-    // let value =randomColor(id).z;
-
-    // let color = hsv2rgb(vec3(hue, saturation, value));
-    // return color;
-
     return randomColor(id);
 }
 
 fn get_color(ray: Ray, i: Intersection) -> vec4f {
     let albedo = get_sphere_color(i.index);
-
-    // Point light
-    let light_direction = LIGHT_DIRECTION;
-    var light_intensity = sample_irradiance(i.normal);
-
-    // let new_ray = Ray(i.coord - light_direction * 0.1, -light_direction);
-    // let new_hit = bvh_intersect(new_ray);
-    // if new_hit.is_hit {
-    //     // Hit some other object.
-    //     // return vec4(0., 0., 0., 1.);
-    //     light_intensity = 0.;
-    // }
-
-    // return vec4(albedo * light_intensity, 1.);
-
-    // let roughness = 0.2;
-    // let metallic = 0.;
-    // let radiance = vec3(1.);
-
-    // // let color = CookTorranceBRDF(albedo, roughness, metallic, ray.direction, i.normal, light_direction, radiance) * light_intensity;
-    // let color = albedo * lambert(light_direction, i.normal) * light_intensity;
-    let color = albedo * light_intensity;
+    var irradiance = sample_irradiance(i.normal);
+    let color = albedo * irradiance;
     return vec4(color, 1.);
-}
-
-fn occlusion_bvh(i: Intersection, color: vec3f, pixel: vec2<u32>) -> vec3f {
-    let id = (pixel.x + pixel.y * uniforms.height) % arrayLength(&random_colors);
-    let random = normalize(random_colors[id].xyz);
-
-    let tangent = cross(random, i.normal);
-    let bitangent = cross(i.normal, tangent);
-
-    let tangentToViewSpaceMatrix = mat3x3f(tangent, bitangent, i.normal);
-
-    var totalIntensity = vec3(0.);
-    let arrLen = arrayLength(&random_directions);
-
-    for (var j = 0u; j < arrLen; j++) {
-        let dir = tangentToViewSpaceMatrix * random_directions[j];
-        let new_ray = Ray(
-            i.coord + dir * 0.01,
-            dir,
-        );
-        let new_i = bvh_intersect(new_ray);
-        if new_i.is_hit {
-            totalIntensity += get_color(new_ray, new_i).xyz;
-        } else {
-            totalIntensity += vec3(1.) * lambert(LIGHT_DIRECTION, i.normal);
-        }
-    }
-
-    totalIntensity /= f32(arrLen);
-    return color * totalIntensity;
 }
 
 fn direction_to_uv(direction: vec3<f32>) -> vec2<f32> {
@@ -325,40 +149,19 @@ fn bvh_color(ray: Ray, pixel: vec2<u32>) -> vec4f {
         var color = get_color(ray, i);
 
         // Relfectivity.
-        // let new_direction = normalize(reflect(ray.direction, i.normal));
-        // let new_ray = Ray(i.coord + new_direction * 0.01, new_direction);
-        // let new_hit = bvh_intersect(new_ray);
-        // if new_hit.is_hit {
-        //     color += get_color(new_ray, new_hit) * 0.1;
-        // } else {
-        //     color += vec4(sample_background(new_ray), 1.) * 0.1;
-        // }
-
-        // Shadow.
-        // let shadow_ray_direction = -LIGHT_DIRECTION;
-        // let shadow_ray = Ray(i.coord + shadow_ray_direction * 0.01, shadow_ray_direction);
-        // let shadow_hit = bvh_intersect(shadow_ray);
-        // if shadow_hit.is_hit {
-        //     color *= 0.1;
-        // }
+        let new_direction = normalize(reflect(ray.direction, i.normal));
+        let new_ray = Ray(i.coord + new_direction * 0.01, new_direction);
+        let new_hit = bvh_intersect(new_ray);
+        if new_hit.is_hit {
+            color += get_color(new_ray, new_hit) * 0.1;
+        } else {
+            color += vec4(sample_background(new_ray), 1.) * 0.1;
+        }
 
         return vec4(color);
-
-        // let albedo = get_sphere_color(i.index);
-
-        // return vec4(occlusion_bvh(i, albedo.xyz, pixel), 1.);
     }
 
-    // sample background
     return vec4(sample_background(ray), 1.);
-    // let longitude = atan2(ray.direction.y, ray.direction.x);  // -π to π
-    // let latitude  = asin(clamp(ray.direction.z, -1.0, 1.0));  // -π/2 to π/2
-    // let u = (longitude / (2.0 * PI)) + 0.5;
-    // let v = 0.5 - (latitude / PI); // Flip Y if needed
-    // let texSize = textureDimensions(bgColorTexture);
-    // let pixelCoord = vec2<i32>(vec2<f32>(u, v) * vec2<f32>(texSize));
-    // let bg_color = textureLoad(bgColorTexture, pixelCoord, 0);
-    // return vec4(vec3(bg_color.rgb), 1.);
 }
 
 fn stack_push(current_len: u32, node_id: u32, op: u32) -> u32 {
