@@ -297,7 +297,7 @@ fn occlusion_bvh(i: Intersection, color: vec3f, pixel: vec2<u32>) -> vec3f {
 
 fn direction_to_uv(direction: vec3<f32>) -> vec2<f32> {
     let longitude = atan2(direction.y, direction.x);
-    let latitude  = asin(clamp(direction.z, -1.0, 1.0));
+    let latitude  = asin(direction.z);
     let u = (longitude / (2.0 * PI)) + 0.5;
     let v = 0.5 - (latitude / PI);
     return vec2(u, v);
