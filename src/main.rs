@@ -300,11 +300,20 @@ impl InitializedApp {
             match event {
                 OtherEvent::MouseScroll(ev) => match ev {
                     MouseScrollDelta::PixelDelta(pos) => {
-                        const MULT: f32 = 1.;
-                        movement =
-                            movement + left * MULT * (pos.x as f32) / (self.screen_width as f32);
-                        movement =
-                            movement + up * MULT * (pos.y as f32) / (self.screen_height as f32);
+                        // Changed from movement to rotation
+                        const ROTATION_SENSITIVITY: f32 = 0.4;
+
+                        // Rotate around vertical axis (left/right)
+                        new_direction = self.camera.direction.rotate_around_axis(
+                            &up,
+                            ROTATION_SENSITIVITY * (pos.x as f32) / (self.screen_width as f32),
+                        );
+
+                        // Rotate around horizontal axis (up/down)
+                        new_direction = new_direction.rotate_around_axis(
+                            &left,
+                            -ROTATION_SENSITIVITY * (pos.y as f32) / (self.screen_height as f32),
+                        );
                     }
                     _ev => {}
                 },

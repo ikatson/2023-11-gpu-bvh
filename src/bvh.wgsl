@@ -77,7 +77,7 @@ struct StackItem {
     flags: u32,
 }
 
-const MAX_ITER: u32 = 128u;
+const MAX_ITER: u32 = 256u;
 const LIGHT_DIRECTION: vec3f = vec3(0.09901475, 0.09901475, -0.99014753);
 var<private> stack: array<StackItem, 32>;
 
