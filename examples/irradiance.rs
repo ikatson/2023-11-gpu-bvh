@@ -147,8 +147,8 @@ fn main() {
         });
         cpass.set_pipeline(&pipeline);
         cpass.set_bind_group(0, &bg, &[]);
-        // cpass.dispatch_workgroups(512 / 8, 512 / 8, 1);
-        cpass.dispatch_workgroups(1, 1, 1);
+        cpass.dispatch_workgroups(512 / 8, 512 / 8, 1);
+        // cpass.dispatch_workgroups(1, 1, 1);
     }
 
     cmd.copy_texture_to_buffer(
@@ -184,6 +184,7 @@ fn main() {
         println!("mapped");
         tx.send(v).unwrap();
     });
+    device.poll(wgpu::Maintain::Wait);
     rx.recv().unwrap().unwrap();
     println!("mapped 2");
 

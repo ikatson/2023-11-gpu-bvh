@@ -8,8 +8,8 @@ var outputTexture: texture_storage_2d<rgba32float, write>;
 
 // Helper function to convert from UV coordinates to direction vector
 fn uvToDirection(uv: vec2<f32>) -> vec3<f32> {
-    let phi = 2.0 * 3.14159265359 * uv.x;
-    let theta = 3.14159265359 * uv.y;
+    let phi = 2.0 * PI * uv.x;
+    let theta = PI * uv.y;
 
     let sinTheta = sin(theta);
 
@@ -25,8 +25,8 @@ fn directionToUv(dir: vec3<f32>) -> vec2<f32> {
     let phi = atan2(dir.x, dir.z);
     let theta = acos(dir.y);
 
-    let u = 1.0 - (phi + 3.14159265359) / (2.0 * 3.14159265359);
-    let v = theta / 3.14159265359;
+    let u = 1.0 - (phi + PI) / (2.0 * PI);
+    let v = theta / PI;
 
     return vec2<f32>(u, v);
 }
@@ -34,13 +34,8 @@ fn directionToUv(dir: vec3<f32>) -> vec2<f32> {
 // Compute irradiance by sampling the environment map over a hemisphere
 @compute @workgroup_size(8, 8, 1)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
-    let dimensions = vec2<u32>(512u, 512u);
+    let dimensions = textureDimensions(outputTexture);
     let pixelCoord = vec2<u32>(global_id.xy);
-
-    // Skip out-of-bounds pixels
-    if (pixelCoord.x >= dimensions.x || pixelCoord.y >= dimensions.y) {
-        return;
-    }
 
     // Get normalized texture coordinates
     let uv = (vec2<f32>(pixelCoord) + 0.5) / vec2<f32>(dimensions);
@@ -59,8 +54,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     var irradiance = vec3<f32>(0.0);
 
     // Monte Carlo integration of the irradiance over the hemisphere
-    for (var phi = 0.0; phi < 2.0 * 3.14159265359; phi += sampleDelta) {
-        for (var theta = 0.0; theta < 0.5 * 3.14159265359; theta += sampleDelta) {
+    for (var phi = 0.0; phi < 2.0 * PI; phi += sampleDelta) {
+        for (var theta = 0.0; theta < 0.5 * PI; theta += sampleDelta) {
             // Spherical to cartesian in local space
             let sampleVec = vec3<f32>(
                 sin(theta) * cos(phi),
@@ -87,7 +82,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
     // Normalize and scale the irradiance
     if (numSamples > 0u) {
-        irradiance = irradiance * (3.14159265359 / f32(numSamples));
+        irradiance = irradiance * (PI / f32(numSamples));
     }
 
     // Write the irradiance value to the output texture
