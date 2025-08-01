@@ -1,4 +1,5 @@
-A learning project to create a compute shader in Rust that renders a BVH
+A learning project to create a compute shader in Rust that renders a BVH.
+
 Broken (doesn't compile anymore)
 
 Here's a screenshot since when it worked
