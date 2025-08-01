@@ -12,6 +12,7 @@ pollster = "0.3.0"
 rand = "0.8.5"
 rayon = "1.8.0"
 wgpu = { version = "24" }
+wgpu-mipmap = "0.1.0"
 winit = { version = "0.30" }
 zerocopy = "0.7.25"
 zerocopy-derive = "0.7.25"
